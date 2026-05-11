@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -20,6 +21,34 @@ VALID_XFADE_TRANSITIONS = {
     "smoothleft", "smoothright", "smoothup", "smoothdown",
     "circleopen", "circleclose",
 }
+DEFAULT_SUBTITLE_FONT_SIZE = 15
+DEFAULT_SUBTITLE_MAX_LINE_LEN = 100
+DEFAULT_BGM_VOLUME = 0.85
+DEFAULT_SUBTITLE_FONT_NAME = "Microsoft YaHei"
+
+PUNCTUATION_TRANSLATION = str.maketrans(
+    {
+        "，": ",",
+        "。": ".",
+        "：": ":",
+        "；": ";",
+        "！": "!",
+        "？": "?",
+        "（": "(",
+        "）": ")",
+        "【": "[",
+        "】": "]",
+        "《": "<",
+        "》": ">",
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "、": ",",
+        "—": "-",
+        "…": "...",
+    }
+)
 
 
 @dataclass
@@ -163,6 +192,89 @@ def wrap_text(text: str, max_len: int) -> str:
     return "\n".join(lines)
 
 
+def resolve_subtitle_style(subtitle_text: str, font_size: int, max_line_len: int) -> tuple[int, int]:
+    normalized_text = str(subtitle_text or "").strip()
+    adjusted_line_len = max(10, min(max_line_len, DEFAULT_SUBTITLE_MAX_LINE_LEN))
+    adjusted_font_size = font_size
+
+    if len(normalized_text) >= adjusted_line_len * 3:
+        adjusted_font_size = int(font_size * 0.68)
+    elif len(normalized_text) >= adjusted_line_len * 2:
+        adjusted_font_size = int(font_size * 0.78)
+    elif len(normalized_text) >= adjusted_line_len:
+        adjusted_font_size = int(font_size * 0.88)
+
+    adjusted_font_size = max(10, adjusted_font_size)
+    return adjusted_font_size, adjusted_line_len
+
+
+def normalize_subtitle_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(text or ""))
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = "".join(char for char in normalized if char == "\n" or char >= " ")
+    normalized = normalized.translate(PUNCTUATION_TRANSLATION)
+    return normalized.strip()
+
+
+def infer_font_name(font_file: Optional[Path]) -> str:
+    if not font_file:
+        return DEFAULT_SUBTITLE_FONT_NAME
+    stem = font_file.stem.lower()
+    if "msyh" in stem or "yahei" in stem:
+        return "Microsoft YaHei"
+    if "simhei" in stem:
+        return "SimHei"
+    if "simsun" in stem:
+        return "SimSun"
+    return DEFAULT_SUBTITLE_FONT_NAME
+
+
+def escape_ass_text(value: str) -> str:
+    value = normalize_subtitle_text(value)
+    value = value.replace("\\", r"\\")
+    value = value.replace("{", "（").replace("}", "）")
+    value = value.replace("\n", r"\N")
+    return value
+
+
+def build_ass_subtitle_content(subtitle_text: str, font_name: str, font_size: int) -> str:
+    escaped_text = escape_ass_text(subtitle_text)
+    return "\n".join(
+        [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "WrapStyle: 2",
+            "ScaledBorderAndShadow: yes",
+            "PlayResX: 1920",
+            "PlayResY: 1080",
+            "",
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+            f"Style: Default,{font_name},{font_size},&H00FFFFFF,&H00FFFFFF,&H00303030,&H66000000,0,0,0,0,100,100,0,0,3,2,0,2,60,60,42,1",
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+            f"Dialogue: 0,0:00:00.00,9:59:59.00,Default,,0,0,0,,{escaped_text}",
+        ]
+    )
+
+
+def write_ass_subtitle_file(output_path: Path, subtitle_text: str, font_name: str, font_size: int) -> Path:
+    subtitle_path = output_path.with_suffix(".ass")
+    subtitle_path.write_text(
+        build_ass_subtitle_content(subtitle_text, font_name, font_size),
+        encoding="utf-8-sig",
+    )
+    return subtitle_path
+
+
+def build_subtitles_filter(subtitle_path: Path, font_file: Optional[Path]) -> str:
+    filter_value = f"subtitles='{escape_drawtext_path(str(normalize_filter_path(subtitle_path)))}'"
+    if font_file:
+        filter_value += f":fontsdir='{escape_drawtext_path(str(font_file.parent))}'"
+    return filter_value
+
+
 def escape_drawtext_text(value: str) -> str:
     value = value.replace("\\", r"\\")
     value = value.replace(":", r"\:")
@@ -302,8 +414,43 @@ def has_audio_stream(ffprobe: str, ffmpeg: str, media_path: Path) -> bool:
 def find_bgm_file() -> Optional[Path]:
     if not BGM_DIR.exists():
         return None
-    candidates = list(BGM_DIR.glob("*.mp3")) + list(BGM_DIR.glob("*.MP3"))
+    candidates = []
+    for pattern in ("*.mp3", "*.MP3", "*.wav", "*.WAV", "*.m4a", "*.M4A"):
+        candidates.extend(BGM_DIR.glob(pattern))
     return random.choice(candidates) if candidates else None
+
+
+def build_bgm_only_command(
+    ffmpeg: str,
+    input_video: Path,
+    output_video: Path,
+    bgm_file: Path,
+    bgm_filter: str,
+) -> list[str]:
+    return [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(input_video),
+        "-stream_loop",
+        "-1",
+        "-i",
+        str(bgm_file),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-af",
+        bgm_filter,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        str(output_video),
+    ]
 
 
 def add_bgm_to_video(ffmpeg: str, ffprobe: str, input_video: Path, output_video: Path, bgm_file: Path, dry_run: bool, expected_duration: Optional[float] = None, fade_in: float = 1.0, fade_out: float = 1.5) -> None:
@@ -314,21 +461,72 @@ def add_bgm_to_video(ffmpeg: str, ffprobe: str, input_video: Path, output_video:
         return
 
     fade_out_start = max(0.0, duration - fade_out)
-    bgm_filter = f"afade=t=in:st=0:d={fade_in},afade=t=out:st={fade_out_start}:d={fade_out}"
+    bgm_filter = f"volume={DEFAULT_BGM_VOLUME},afade=t=in:st=0:d={fade_in},afade=t=out:st={fade_out_start}:d={fade_out}"
+    input_has_audio = has_audio_stream(ffprobe, ffmpeg, input_video)
+    bgm_only_cmd = build_bgm_only_command(ffmpeg, input_video, output_video, bgm_file, bgm_filter)
 
-    if has_audio_stream(ffprobe, ffmpeg, input_video):
-        filter_complex = f"[1:a]{bgm_filter}[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]"
+    if not input_has_audio:
+        run_cmd(bgm_only_cmd, dry_run=dry_run)
+        return
+
+    if input_has_audio:
+        filter_complex = f"[0:a]volume=0.45[src];[1:a]{bgm_filter}[bgm];[src][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]"
         map_audio = ["-map", "[a]"]
     else:
         filter_complex = f"[1:a]{bgm_filter}[a]"
         map_audio = ["-map", "[a]"]
 
     cmd = [ffmpeg, "-y", "-i", str(input_video), "-stream_loop", "-1", "-i", str(bgm_file), "-filter_complex", filter_complex, "-map", "0:v:0", *map_audio, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-t", str(duration), str(output_video)]
-    run_cmd(cmd, dry_run=dry_run)
+    try:
+        run_cmd(cmd, dry_run=dry_run)
+    except RuntimeError:
+        run_cmd(bgm_only_cmd, dry_run=dry_run)
+        return
+
+    if not dry_run and not has_audio_stream(ffprobe, ffmpeg, output_video):
+        print("Warning: Primary BGM mix produced no audio, retrying with fallback mix.")
+        run_cmd(bgm_only_cmd, dry_run=dry_run)
 
 
 def render_subtitle(ffmpeg: str, input_video: Path, output_video: Path, subtitle_text: str, font_file: Optional[Path], font_size: int, max_line_len: int, dry_run: bool) -> None:
-    subtitle_text = wrap_text(subtitle_text, max_line_len)
+    font_size, max_line_len = resolve_subtitle_style(subtitle_text, font_size, max_line_len)
+    subtitle_text = wrap_text(normalize_subtitle_text(subtitle_text), max_line_len)
+    font_name = infer_font_name(font_file)
+    subtitle_ass_file = write_ass_subtitle_file(output_video, subtitle_text, font_name, font_size)
+
+    subtitles_filter = build_subtitles_filter(subtitle_ass_file, font_file)
+    subtitles_cmd = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(input_video),
+        "-vf",
+        subtitles_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        str(output_video),
+    ]
+
+    try:
+        run_cmd(subtitles_cmd, dry_run=dry_run)
+        return
+    except RuntimeError:
+        pass
+
     escaped_text = escape_drawtext_text(subtitle_text)
 
     filter_parts = []
@@ -336,15 +534,16 @@ def render_subtitle(ffmpeg: str, input_video: Path, output_video: Path, subtitle
         filter_parts.append(f"fontfile={escape_drawtext_path(str(font_file))}")
 
     subtitle_file = output_video.with_suffix(".txt")
-    subtitle_file.write_text(subtitle_text, encoding="utf-8")
+    subtitle_file.write_text(subtitle_text, encoding="utf-8-sig")
     subtitle_path = normalize_filter_path(subtitle_file)
     use_textfile = ":" not in subtitle_path.as_posix()
     if use_textfile:
         filter_parts.append(f"textfile={escape_drawtext_path(str(subtitle_path))}")
+        filter_parts.append("reload=0")
     else:
         filter_parts.append(f"text='{escaped_text}'")
 
-    filter_parts.extend(["x=(w-text_w)/2", "y=h*0.85", f"fontsize={font_size}", "fontcolor=white", "box=1", "boxcolor=black@0.5"])
+    filter_parts.extend(["x=(w-text_w)/2", "y=h*0.82", f"fontsize={font_size}", "line_spacing=10", "text_shaping=1", "fix_bounds=1", "fontcolor=white", "borderw=2", "bordercolor=black@0.35", "box=1", "boxcolor=black@0.45"])
     drawtext = "drawtext=" + ":".join(filter_parts)
 
     cmd = [ffmpeg, "-y", "-i", str(input_video), "-vf", drawtext, "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", str(output_video)]
@@ -447,8 +646,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ffmpeg", default=None, help="ffmpeg 路径")
     parser.add_argument("--output-dir", default=None, help="输出目录")
     parser.add_argument("--font_file", "--font-file", dest="font_file", default=None, help="字幕字体文件路径")
-    parser.add_argument("--font-size", type=int, default=60, help="字幕字号")
-    parser.add_argument("--max-line-len", type=int, default=16, help="每行最大字数")
+    parser.add_argument("--font-size", type=int, default=DEFAULT_SUBTITLE_FONT_SIZE, help="字幕字号")
+    parser.add_argument("--max-line-len", type=int, default=DEFAULT_SUBTITLE_MAX_LINE_LEN, help="每行最大字数")
     parser.add_argument("--dry-run", action="store_true", help="仅打印 ffmpeg 命令")
     return parser.parse_args()
 

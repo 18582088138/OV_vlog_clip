@@ -10,7 +10,14 @@ from unittest.mock import patch
 from ov_video_editing_skills import analyze_video
 from ov_video_editing_skills import cli
 from ov_video_editing_skills.bootstrap import bootstrap_environment
-from ov_video_editing_skills.compose_video import resolve_storyboard_input
+from ov_video_editing_skills.compose_video import (
+    add_bgm_to_video,
+    build_bgm_only_command,
+    build_ass_subtitle_content,
+    normalize_subtitle_text,
+    resolve_storyboard_input,
+    resolve_subtitle_style,
+)
 from ov_video_editing_skills.creative_brief import (
     build_analysis_file_name,
     build_brief_file_name,
@@ -18,7 +25,7 @@ from ov_video_editing_skills.creative_brief import (
     create_creative_brief,
     save_creative_brief,
 )
-from ov_video_editing_skills.generate_storyboard import generate_storyboard, resolve_analysis_input, resolve_storyboard_output_path
+from ov_video_editing_skills.generate_storyboard import choose_bgm_file, generate_storyboard, resolve_analysis_input, resolve_storyboard_output_path, select_candidates
 from ov_video_editing_skills.prepare_workspace import prepare_workspace
 from ov_video_editing_skills.runtime import runtime_summary
 
@@ -290,6 +297,88 @@ class CreativeFlowTests(unittest.TestCase):
 
             self.assertEqual(resolve_storyboard_input(storyboard_path), storyboard_path)
             self.assertEqual(resolve_storyboard_input(root), storyboard_path)
+
+    def test_storyboard_select_candidates_compresses_short_source(self) -> None:
+        candidates = [
+            type("Candidate", (), {
+                "source_video": "meeting.mp4",
+                "seg_id": index,
+                "seg_start": index * 3.0,
+                "seg_end": (index + 1) * 3.0,
+                "seg_dur": 3.0,
+                "seg_desc": f"segment-{index}",
+                "score": 10.0 - index * 0.1,
+            })()
+            for index in range(11)
+        ]
+
+        selected = select_candidates(candidates, 30.0)
+
+        self.assertLessEqual(len(selected), 8)
+        self.assertGreaterEqual(len(selected), 3)
+
+    def test_compose_resolve_subtitle_style_shrinks_long_text(self) -> None:
+        font_size, max_line_len = resolve_subtitle_style("这是一条比较长的字幕文本，需要自动缩小字体并换行显示", 44, 14)
+
+        self.assertLess(font_size, 44)
+        self.assertGreaterEqual(font_size, 24)
+        self.assertLessEqual(max_line_len, 12)
+
+    def test_compose_normalize_subtitle_text_removes_control_chars(self) -> None:
+        normalized = normalize_subtitle_text("测试\x00字幕，\r\n第二行（）【引号】“内容”……")
+
+        self.assertNotIn("\x00", normalized)
+        self.assertEqual(normalized, "测试字幕,\n第二行()[引号]\"内容\"......")
+
+    def test_compose_build_ass_subtitle_content_uses_safe_unicode_text(self) -> None:
+        content = build_ass_subtitle_content("第一行字幕\n第二行{测试}", "Microsoft YaHei", 40)
+
+        self.assertIn("[Script Info]", content)
+        self.assertIn("Style: Default,Microsoft YaHei,40", content)
+        self.assertIn(r"第一行字幕\N第二行（测试）", content)
+
+    def test_compose_build_bgm_only_command_maps_background_audio(self) -> None:
+        command = build_bgm_only_command(
+            ffmpeg="ffmpeg",
+            input_video=Path("input.mp4"),
+            output_video=Path("output.mp4"),
+            bgm_file=Path("bgm.mp3"),
+            bgm_filter="volume=0.85",
+        )
+
+        self.assertIn("-map", command)
+        self.assertIn("1:a:0", command)
+        self.assertIn("-shortest", command)
+
+    def test_compose_add_bgm_uses_bgm_only_when_input_has_no_audio(self) -> None:
+        with patch("ov_video_editing_skills.compose_video.get_media_duration", return_value=12.0), patch(
+            "ov_video_editing_skills.compose_video.has_audio_stream", return_value=False
+        ), patch("ov_video_editing_skills.compose_video.run_cmd") as run_cmd:
+            add_bgm_to_video(
+                ffmpeg="ffmpeg",
+                ffprobe="ffprobe",
+                input_video=Path("input.mp4"),
+                output_video=Path("output.mp4"),
+                bgm_file=Path("bgm.mp3"),
+                dry_run=False,
+            )
+
+        self.assertEqual(run_cmd.call_count, 1)
+        executed = run_cmd.call_args.args[0]
+        self.assertIn("1:a:0", executed)
+        self.assertIn("-shortest", executed)
+
+    def test_storyboard_choose_bgm_file_falls_back_to_available_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bgm_dir = Path(tmp)
+            (bgm_dir / "bgm_style.json").write_text("{}", encoding="utf-8")
+            (bgm_dir / "calm_track.mp3").write_bytes(b"fake")
+
+            with patch("ov_video_editing_skills.generate_storyboard.BGM_DIR", bgm_dir):
+                bgm_file, style_tag = choose_bgm_file("轻松治愈", None, None)
+
+            self.assertEqual(bgm_file, "calm_track.mp3")
+            self.assertEqual(style_tag, "舒缓优美")
 
     def test_cli_prepare_forwards_only_subcommand_args(self) -> None:
         original_argv = sys.argv[:]

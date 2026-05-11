@@ -27,6 +27,8 @@ from .runtime import BGM_DIR
 
 INVALID_SEGMENT_TERMS = ("分析失败", "无法提取帧", "未生成有效描述")
 LEGACY_ANALYSIS_FILE_NAME = "output_vlm.json"
+MAX_SOURCE_KEEP_RATIO = 0.65
+MIN_STORY_CLIPS = 3
 
 
 @dataclass
@@ -170,8 +172,12 @@ def pick_evenly(candidates: list[SegmentCandidate], target_count: int) -> list[S
 def select_candidates(candidates: list[SegmentCandidate], target_duration: float) -> list[SegmentCandidate]:
     if not candidates:
         return []
-    avg_duration = sum(max(candidate.seg_dur, 0.1) for candidate in candidates) / len(candidates)
-    target_count = max(4, min(len(candidates), math.ceil(target_duration / max(avg_duration, 0.1))))
+
+    total_source_duration = sum(max(candidate.seg_dur, 0.1) for candidate in candidates)
+    effective_target_duration = min(float(target_duration), total_source_duration * MAX_SOURCE_KEEP_RATIO)
+    duration_ratio = min(1.0, max(0.0, effective_target_duration / max(total_source_duration, 0.1)))
+    target_count = max(MIN_STORY_CLIPS, min(len(candidates), math.ceil(len(candidates) * duration_ratio)))
+
     candidates_sorted = sorted(candidates, key=lambda item: (-item.score, item.source_video, item.seg_start))
     top_pool = candidates_sorted[: max(target_count * 3, target_count)]
     top_pool = sorted(top_pool, key=lambda item: (item.source_video, item.seg_start))
@@ -233,18 +239,24 @@ def choose_bgm_file(mood: str, bgm_style: str | None, bgm_file: str | None) -> t
         if local_candidate.exists():
             return local_candidate.name, bgm_style
 
-    existing_mp3 = sorted([path.name for path in BGM_DIR.glob("*.mp3")])
-    if not existing_mp3:
+    bgm_candidates = sorted(
+        [
+            path.name
+            for pattern in ("*.mp3", "*.MP3", "*.wav", "*.WAV", "*.m4a", "*.M4A")
+            for path in BGM_DIR.glob(pattern)
+        ]
+    )
+    if not bgm_candidates:
         return None, infer_bgm_style(mood, bgm_style)
 
     selected_style = infer_bgm_style(mood, bgm_style)
     style_index = load_bgm_style_index()
     if selected_style and selected_style in style_index:
         for file_name in style_index[selected_style].keys():
-            if file_name in existing_mp3:
+            if file_name in bgm_candidates:
                 return file_name, selected_style
 
-    return random.choice(existing_mp3), selected_style
+    return random.choice(bgm_candidates), selected_style
 
 
 def build_story_outline(theme: str, mood: str, candidates: list[SegmentCandidate]) -> dict[str, str]:
@@ -325,6 +337,8 @@ def generate_storyboard(
             "mood": final_mood,
             "pacing": final_pacing,
             "target_duration_seconds": effective_target_duration,
+            "source_duration_seconds": round(sum(max(candidate.seg_dur, 0.1) for candidate in candidates), 3),
+            "selection_ratio": round((actual_duration / max(sum(max(candidate.seg_dur, 0.1) for candidate in candidates), 0.1)), 3),
             "actual_duration_seconds": round(actual_duration, 3),
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "source_analysis": str(analysis_path),
