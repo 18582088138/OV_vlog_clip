@@ -15,7 +15,7 @@ from .creative_brief import (
     derive_artifact_base_name,
     load_creative_brief,
 )
-from .runtime import DEFAULT_MODEL_DIR, BIN_DIR, ensure_local_requirements, maybe_reexec_in_local_venv
+from .runtime import BIN_DIR, DEFAULT_MODEL_DIR, ensure_local_requirements, maybe_reexec_in_local_venv, safe_print
 
 cv2 = None
 np = None
@@ -142,10 +142,10 @@ def extract_segment_frames(
 def init_vlm_pipeline(model_dir: Path, device: str = "GPU"):
     import openvino_genai as ov_genai
 
-    print(f"[VLM] 正在初始化模型：{model_dir}")
-    print(f"[VLM] 设备：{device}")
+    safe_print(f"[VLM] 正在初始化模型：{model_dir}")
+    safe_print(f"[VLM] 设备：{device}")
     pipeline = ov_genai.VLMPipeline(str(model_dir), device)
-    print("[VLM] ✓ 模型初始化完成")
+    safe_print("[VLM] ✓ 模型初始化完成")
     return pipeline
 
 
@@ -184,7 +184,7 @@ def process_video(
 ) -> dict[str, object]:
     duration = get_video_duration(video_path, ffprobe_path)
     num_segments = max(1, math.ceil(duration / seg_duration))
-    print(f"  时长：{duration:.2f}s，分 {num_segments} 段")
+    safe_print(f"  时长：{duration:.2f}s，分 {num_segments} 段")
 
     segments = []
     for seg_id in range(num_segments):
@@ -201,10 +201,10 @@ def process_video(
                 desc = analyze_segment_vlm(pipeline, frames, prompt, max_tokens)
             except Exception as exc:
                 desc = f"分析失败：{exc}"
-                print(f"    段 {seg_id} VLM 推理失败：{exc}", file=sys.stderr)
+                safe_print(f"    段 {seg_id} VLM 推理失败：{exc}", file=sys.stderr)
 
         elapsed = time.time() - seg_start_time
-        print(f"    段 {seg_id}: {seg_start:.1f}s-{seg_end:.1f}s | {len(frames)} 帧 | {elapsed:.1f}s | {desc[:50]}...")
+        safe_print(f"    段 {seg_id}: {seg_start:.1f}s-{seg_end:.1f}s | {len(frames)} 帧 | {elapsed:.1f}s | {desc[:50]}...")
         segments.append(
             {
                 "seg_id": seg_id,
@@ -263,11 +263,11 @@ def main() -> int:
         maybe_reexec_in_local_venv("ov_video_editing_skills.analyze_video")
         load_runtime_dependencies()
     except Exception as exc:
-        print(f"错误：运行环境检查失败：{exc}", file=sys.stderr)
+        safe_print(f"错误：运行环境检查失败：{exc}", file=sys.stderr)
         return 1
 
     if args.seg_duration <= 0 or args.frames_per_seg < 1 or args.scale <= 0:
-        print("错误：参数非法，请检查 seg-duration / frames-per-seg / scale", file=sys.stderr)
+        safe_print("错误：参数非法，请检查 seg-duration / frames-per-seg / scale", file=sys.stderr)
         return 1
 
     video_input = Path(args.video_dir).resolve()
@@ -275,7 +275,7 @@ def main() -> int:
     try:
         video_root, videos = resolve_video_input(video_input)
     except Exception as exc:
-        print(f"错误：{exc}", file=sys.stderr)
+        safe_print(f"错误：{exc}", file=sys.stderr)
         return 1
 
     prompt, brief_path = resolve_prompt(args.prompt, Path(args.brief).resolve() if args.brief else video_input, args.brief)
@@ -284,18 +284,18 @@ def main() -> int:
     ffprobe_path = str(BIN_DIR / ffprobe_name)
 
     if not model_dir.is_dir():
-        print(f"错误：模型目录不存在：{model_dir}", file=sys.stderr)
-        print("请先按 README 中的说明手动放置模型目录。", file=sys.stderr)
+        safe_print(f"错误：模型目录不存在：{model_dir}", file=sys.stderr)
+        safe_print("请先按 README 中的说明手动放置模型目录。", file=sys.stderr)
         return 1
 
-    print(f"[分析] 找到 {len(videos)} 个视频文件")
-    print(f"[分析] 输入根目录：{video_root}")
-    print(f"[分析] 模型：{model_dir}")
-    print(f"[分析] 设备：{args.device}")
+    safe_print(f"[分析] 找到 {len(videos)} 个视频文件")
+    safe_print(f"[分析] 输入根目录：{video_root}")
+    safe_print(f"[分析] 模型：{model_dir}")
+    safe_print(f"[分析] 设备：{args.device}")
     if brief_path:
-        print(f"[分析] 使用 brief：{brief_path}")
-    print(f"[分析] 输出文件：{output_path}")
-    print(f"[分析] 段时长：{args.seg_duration}s，每段 {args.frames_per_seg} 帧，缩放 {args.scale}")
+        safe_print(f"[分析] 使用 brief：{brief_path}")
+    safe_print(f"[分析] 输出文件：{output_path}")
+    safe_print(f"[分析] 段时长：{args.seg_duration}s，每段 {args.frames_per_seg} 帧，缩放 {args.scale}")
 
     total_start = time.time()
     pipeline = init_vlm_pipeline(model_dir, args.device)
@@ -303,7 +303,7 @@ def main() -> int:
     results = []
     for index, video_path in enumerate(videos, start=1):
         pct = int(((index - 1) / len(videos)) * 100)
-        print(f"\n[{index}/{len(videos)}] {pct}% {video_path.name}")
+        safe_print(f"\n[{index}/{len(videos)}] {pct}% {video_path.name}")
         results.append(
             process_video(
                 video_path=video_path,
@@ -328,7 +328,7 @@ def main() -> int:
 
     total_time = time.time() - total_start
     total_segments = sum(len(item["segments"]) for item in results)
-    print(f"\n[分析] ✓ 完成：{len(videos)} 个视频，{total_segments} 个段，总耗时 {total_time:.1f}s")
+    safe_print(f"\n[分析] ✓ 完成：{len(videos)} 个视频，{total_segments} 个段，总耗时 {total_time:.1f}s")
     return 0
 
 

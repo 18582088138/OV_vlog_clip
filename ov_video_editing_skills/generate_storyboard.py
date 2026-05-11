@@ -23,7 +23,7 @@ from .creative_brief import (
     infer_base_name_from_artifact,
     load_creative_brief,
 )
-from .runtime import BGM_DIR
+from .runtime import BGM_DIR, safe_print
 
 INVALID_SEGMENT_TERMS = ("分析失败", "无法提取帧", "未生成有效描述")
 LEGACY_ANALYSIS_FILE_NAME = "output_vlm.json"
@@ -411,7 +411,7 @@ def main() -> int:
         analysis_path = resolve_analysis_input(Path(args.analysis).resolve())
         output_path = resolve_storyboard_output_path(args.output, analysis_path)
     except Exception as exc:
-        print(f"[storyboard] ✗ 失败：{exc}")
+        safe_print(f"[storyboard] ✗ 失败：{exc}")
         return 1
 
     brief_path = discover_creative_brief(Path(args.brief).resolve() if args.brief else None, analysis_path, output_path)
@@ -430,14 +430,14 @@ def main() -> int:
             brief_path=brief_path,
         )
     except Exception as exc:
-        print(f"[storyboard] ✗ 失败：{exc}")
+        safe_print(f"[storyboard] ✗ 失败：{exc}")
         return 1
 
-    print(f"[storyboard] 使用分析结果：{analysis_path}")
-    print(f"[storyboard] ✓ 已生成：{output_path}")
+    safe_print(f"[storyboard] 使用分析结果：{analysis_path}")
+    safe_print(f"[storyboard] ✓ 已生成：{output_path}")
     if brief_path:
-        print(f"[storyboard] 使用 brief：{brief_path}")
-    print(json.dumps(storyboard.get("storyboard_metadata", {}), ensure_ascii=False, indent=2))
+        safe_print(f"[storyboard] 使用 brief：{brief_path}")
+    safe_print(json.dumps(storyboard.get("storyboard_metadata", {}), ensure_ascii=False, indent=2))
     return 0
 
 

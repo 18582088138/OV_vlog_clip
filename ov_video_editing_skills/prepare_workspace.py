@@ -15,7 +15,7 @@ from .creative_brief import (
     derive_artifact_base_name,
     save_creative_brief,
 )
-from .runtime import write_runtime_manifest
+from .runtime import safe_print, write_runtime_manifest
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv"}
 ANALYSIS_FILE_NAME = "output_vlm.json"
@@ -183,9 +183,9 @@ def main() -> int:
         workspace_root, videos = resolve_video_input(video_dir)
         artifact_base_name = derive_artifact_base_name(workspace_root, videos)
         brief_output_path = str(Path(workspace_root) / build_brief_file_name(artifact_base_name))
-        print(f"[准备] 找到 {len(videos)} 个视频文件：")
+        safe_print(f"[准备] 找到 {len(videos)} 个视频文件：")
         for video in videos:
-            print(f"  {video.name}")
+            safe_print(f"  {video.name}")
 
         workspace, runtime, analysis_info = prepare_workspace(
             video_dir=video_dir,
@@ -197,11 +197,11 @@ def main() -> int:
             ignore_existing_analysis=args.ignore_existing_analysis,
         )
     except Exception as exc:
-        print(f"[准备] ✗ 失败：{exc}", file=sys.stderr)
+        safe_print(f"[准备] ✗ 失败：{exc}", file=sys.stderr)
         return 1
 
-    print(f"[准备] 工作区已创建：{workspace}")
-    print(f"[准备] 素材根目录：{workspace_root}")
+    safe_print(f"[准备] 工作区已创建：{workspace}")
+    safe_print(f"[准备] 素材根目录：{workspace_root}")
     runtime_manifest = workspace / "runtime_env.json"
     if runtime_manifest.exists():
         try:
@@ -209,16 +209,16 @@ def main() -> int:
             brief_output_path = str(runtime_payload.get("creative_brief") or brief_output_path)
         except Exception:
             pass
-    print(f"[准备] brief 已生成：{brief_output_path}")
+    safe_print(f"[准备] brief 已生成：{brief_output_path}")
     if analysis_info["analysis_mode"] == "reuse_existing_output":
-        print(f"[准备] 复用已有分析结果：{analysis_info['analysis_source']} -> {analysis_info['workspace_analysis']}")
+        safe_print(f"[准备] 复用已有分析结果：{analysis_info['analysis_source']} -> {analysis_info['workspace_analysis']}")
     elif analysis_info["analysis_mode"] == "ignore_existing_output":
-        print(f"[准备] 已忽略现有分析结果：{analysis_info['analysis_source']}")
+        safe_print(f"[准备] 已忽略现有分析结果：{analysis_info['analysis_source']}")
     else:
-        print(f"[准备] 未发现可复用分析结果，后续请输出到：{analysis_info['workspace_analysis']}")
-    print("[准备] ✓ 运行时准备完成")
-    print(json.dumps(runtime, ensure_ascii=False, indent=2))
-    print(str(workspace))
+        safe_print(f"[准备] 未发现可复用分析结果，后续请输出到：{analysis_info['workspace_analysis']}")
+    safe_print("[准备] ✓ 运行时准备完成")
+    safe_print(json.dumps(runtime, ensure_ascii=False, indent=2))
+    safe_print(str(workspace))
     return 0
 
 

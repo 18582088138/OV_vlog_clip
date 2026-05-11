@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,6 +23,7 @@ class CommandScriptTests(unittest.TestCase):
         cls.analyze_script = load_module("test_analyze_script", cls.repo_root / "scripts" / "test_analyze.py")
         cls.storyboard_script = load_module("test_storyboard_script", cls.repo_root / "scripts" / "test_storyboard.py")
         cls.compose_script = load_module("test_compose_script", cls.repo_root / "scripts" / "test_compose.py")
+        cls.e2e_script = load_module("test_e2e_script", cls.repo_root / "scripts" / "test_e2e.py")
 
     def test_prepare_command_uses_default_request_and_extra_args(self) -> None:
         command = self.prepare_script.build_prepare_command(
@@ -105,6 +107,61 @@ class CommandScriptTests(unittest.TestCase):
         default_path = self.compose_script.default_storyboard_input(self.repo_root)
         self.assertTrue(default_path.exists())
         self.assertIn(default_path.name, {"videos", "2022yunqidahui_storyboard.json", "storyboard.json"})
+
+    def test_e2e_builds_full_command_chain_for_single_video(self) -> None:
+        commands = self.e2e_script.build_e2e_commands(
+            repo_root=self.repo_root,
+            python_executable="python",
+            video_dir=self.repo_root / "videos" / "2022yunqidahui.mp4",
+            user_request="做一个30秒的视频总结vlog",
+        )
+
+        self.assertEqual(commands["prepare"][:4], ["python", "run.py", "prepare", "--video-dir"])
+        self.assertEqual(commands["analyze"][:4], ["python", "run.py", "analyze", "--video-dir"])
+        self.assertEqual(commands["storyboard"][:4], ["python", "run.py", "storyboard", "--analysis"])
+        self.assertEqual(commands["compose"][:4], ["python", "run.py", "compose", "--storyboard"])
+        self.assertTrue(commands["paths"]["brief"].endswith("2022yunqidahui_brief.json"))
+        self.assertTrue(commands["paths"]["analysis"].endswith("2022yunqidahui_output_vlm.json"))
+        self.assertTrue(commands["paths"]["storyboard"].endswith("2022yunqidahui_storyboard.json"))
+
+    def test_e2e_builds_full_command_chain_for_directory(self) -> None:
+        commands = self.e2e_script.build_e2e_commands(
+            repo_root=self.repo_root,
+            python_executable="python",
+            video_dir=self.repo_root / "videos",
+            ignore_existing_analysis=True,
+            output_dir=self.repo_root / "videos" / "final_output",
+        )
+
+        self.assertIn("--ignore-existing-analysis", commands["prepare"])
+        self.assertIn("--output-dir", commands["compose"])
+        self.assertTrue(commands["paths"]["brief"].endswith("videos_brief.json"))
+        self.assertTrue(commands["paths"]["analysis"].endswith("videos_output_vlm.json"))
+        self.assertTrue(commands["paths"]["storyboard"].endswith("videos_storyboard.json"))
+
+    def test_e2e_extract_workspace_from_prepare_output_supports_stdout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir) / "editing_20260511_120000"
+            workspace.mkdir()
+
+            result = self.e2e_script.extract_workspace_from_prepare_output(
+                stdout=f"[准备] 工作区已创建\n{workspace}\n",
+                stderr=None,
+            )
+
+            self.assertEqual(result, workspace.resolve())
+
+    def test_e2e_extract_workspace_from_prepare_output_supports_stderr_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir) / "editing_20260511_120001"
+            workspace.mkdir()
+
+            result = self.e2e_script.extract_workspace_from_prepare_output(
+                stdout=None,
+                stderr=f"warning\n{workspace}\n",
+            )
+
+            self.assertEqual(result, workspace.resolve())
 
 
 if __name__ == "__main__":

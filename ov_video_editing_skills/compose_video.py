@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .creative_brief import LEGACY_STORYBOARD_FILE_NAME, STORYBOARD_FILE_SUFFIX
-from .runtime import BGM_DIR, BIN_DIR, ensure_local_requirements, maybe_reexec_in_local_venv
+from .runtime import BGM_DIR, BIN_DIR, ensure_local_requirements, maybe_reexec_in_local_venv, safe_print
 
 VALID_XFADE_TRANSITIONS = {
     "fade", "dissolve", "fadeblack", "fadewhite",
@@ -157,7 +157,7 @@ def load_storyboard(path: Path) -> Tuple[List[ClipSpec], Optional[Path], Storybo
         trans_type = str(trans_obj.get("type", "")).strip().lower()
         trans_dur = float(trans_obj.get("duration", 0.8))
         if trans_type and trans_type not in VALID_XFADE_TRANSITIONS:
-            print(f"Warning: clip {idx} transition '{trans_type}' not supported, ignoring.")
+            safe_print(f"Warning: clip {idx} transition '{trans_type}' not supported, ignoring.")
             trans_type = ""
 
         specs.append(
@@ -297,7 +297,7 @@ def quote_concat_path(path: Path) -> str:
 def find_default_font() -> Optional[Path]:
     for candidate in [Path(r"C:\Windows\Fonts\msyh.ttc"), Path(r"C:\Windows\Fonts\simhei.ttf"), Path(r"C:\Windows\Fonts\simsun.ttc")]:
         if candidate.exists():
-            print(f"Info: Using system font: {candidate}")
+            safe_print(f"Info: Using system font: {candidate}")
             return candidate
     return None
 
@@ -318,7 +318,7 @@ def normalize_filter_path(path: Path) -> Path:
 
 
 def run_cmd(cmd: List[str], dry_run: bool) -> None:
-    print(" ".join(cmd))
+    safe_print(" ".join(cmd))
     if dry_run:
         return
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -345,16 +345,16 @@ def extract_clip(ffmpeg: str, source_video: Path, output_path: Path, in_point: f
     cmd_output_seek = [ffmpeg, "-y", "-i", str(source_video), "-ss", f"{in_point}", "-t", f"{duration}", "-c", "copy", "-avoid_negative_ts", "make_zero", str(output_path)]
 
     if dry_run:
-        print(" ".join(cmd_input_seek))
+        safe_print(" ".join(cmd_input_seek))
         return
 
-    print(" ".join(cmd_input_seek))
+    safe_print(" ".join(cmd_input_seek))
     result = subprocess.run(cmd_input_seek, capture_output=True, text=True)
     if result.returncode == 0 and _is_valid_clip(ffmpeg, output_path):
         return
 
-    print("[extract_clip] 输入侧 seek 失败或输出无效，切换到输出侧 seek 模式重试...")
-    print(" ".join(cmd_output_seek))
+    safe_print("[extract_clip] 输入侧 seek 失败或输出无效，切换到输出侧 seek 模式重试...")
+    safe_print(" ".join(cmd_output_seek))
     result2 = subprocess.run(cmd_output_seek, capture_output=True, text=True)
     if result2.returncode != 0 or not _is_valid_clip(ffmpeg, output_path):
         raise RuntimeError("Command failed (both seek modes):\n" + " ".join(cmd_output_seek) + "\n\n" + (result2.stderr or result2.stdout or ""))
@@ -457,7 +457,7 @@ def add_bgm_to_video(ffmpeg: str, ffprobe: str, input_video: Path, output_video:
     measured_duration = get_media_duration(ffprobe, ffmpeg, input_video)
     duration = float(expected_duration) if expected_duration and expected_duration > 0 else measured_duration
     if not duration or duration <= 0:
-        print("Warning: Unable to determine video duration. Skipping BGM.")
+        safe_print("Warning: Unable to determine video duration. Skipping BGM.")
         return
 
     fade_out_start = max(0.0, duration - fade_out)
@@ -484,7 +484,7 @@ def add_bgm_to_video(ffmpeg: str, ffprobe: str, input_video: Path, output_video:
         return
 
     if not dry_run and not has_audio_stream(ffprobe, ffmpeg, output_video):
-        print("Warning: Primary BGM mix produced no audio, retrying with fallback mix.")
+        safe_print("Warning: Primary BGM mix produced no audio, retrying with fallback mix.")
         run_cmd(bgm_only_cmd, dry_run=dry_run)
 
 
@@ -580,7 +580,7 @@ def concat_videos_with_xfade(ffmpeg: str, input_videos: List[Path], clips: List[
         v_label = out_v
 
     cmd = [ffmpeg, "-y", *inputs, "-filter_complex", ";".join(video_filters), "-map", "[vout]", "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", str(output_video)]
-    print(f"\n== Concatenating {n} clips with xfade transitions ==")
+    safe_print(f"\n== Concatenating {n} clips with xfade transitions ==")
     run_cmd(cmd, dry_run=dry_run)
 
 
@@ -658,7 +658,7 @@ def main() -> int:
         ensure_local_requirements(force=False)
         maybe_reexec_in_local_venv("ov_video_editing_skills.compose_video")
     except Exception as exc:
-        print(f"Error: failed to validate current Python environment: {exc}", file=sys.stderr)
+        safe_print(f"Error: failed to validate current Python environment: {exc}", file=sys.stderr)
         return 1
 
     if not args.ffmpeg:
@@ -667,7 +667,7 @@ def main() -> int:
     try:
         storyboard_path = resolve_storyboard_input(Path(args.storyboard).resolve())
     except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        safe_print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     clips, storyboard_bgm, meta = load_storyboard(storyboard_path)
@@ -683,19 +683,19 @@ def main() -> int:
         if candidate.exists():
             font_file = normalize_filter_path(candidate)
         else:
-            print(f"Warning: Font file not found: {candidate}")
+            safe_print(f"Warning: Font file not found: {candidate}")
     if not font_file:
         font_file = find_default_font()
     subtitles_enabled = font_file is not None
     if not subtitles_enabled:
-        print("Warning: No font file found. Subtitles will be skipped.")
+        safe_print("Warning: No font file found. Subtitles will be skipped.")
 
     processed_files: List[Path] = []
     for clip in clips:
         base = f"clip_{clip.sequence_order:02d}_id{clip.clip_id}"
         raw_path = temp_dir / f"{base}_raw.mp4"
         subtitle_path = temp_dir / f"{base}_sub.mp4"
-        print(f"\n== Processing clip {clip.sequence_order} (clip_id={clip.clip_id}) ==")
+        safe_print(f"\n== Processing clip {clip.sequence_order} (clip_id={clip.clip_id}) ==")
         extract_clip(args.ffmpeg, clip.source_video, raw_path, clip.in_point, clip.duration, args.dry_run)
         if clip.subtitle and subtitles_enabled:
             render_subtitle(args.ffmpeg, raw_path, subtitle_path, clip.subtitle, font_file, args.font_size, args.max_line_len, args.dry_run)
@@ -709,10 +709,10 @@ def main() -> int:
         try:
             concat_videos_with_xfade(args.ffmpeg, processed_files, clips, final_output, args.dry_run)
         except Exception as exc:
-            print(f"\nWarning: xfade failed ({exc}), falling back to hard-cut concat.")
+            safe_print(f"\nWarning: xfade failed ({exc}), falling back to hard-cut concat.")
             concat_videos(args.ffmpeg, processed_files, final_output, temp_dir, args.dry_run)
     else:
-        print(f"\n== Concatenating {len(processed_files)} clips ==")
+        safe_print(f"\n== Concatenating {len(processed_files)} clips ==")
         concat_videos(args.ffmpeg, processed_files, final_output, temp_dir, args.dry_run)
 
     total_clip_duration = sum(clip.duration for clip in clips)
@@ -722,20 +722,20 @@ def main() -> int:
     ffprobe = resolve_ffprobe(args.ffmpeg)
     bgm_file = storyboard_bgm or find_bgm_file()
     if storyboard_bgm and not storyboard_bgm.exists():
-        print(f"\nWarning: Storyboard BGM not found: {storyboard_bgm}. Falling back to random selection.")
+        safe_print(f"\nWarning: Storyboard BGM not found: {storyboard_bgm}. Falling back to random selection.")
         bgm_file = find_bgm_file()
 
     bgm_output = output_dir / build_final_output_name(meta, clips)
     if bgm_file:
-        print(f"\n== Adding BGM: {bgm_file} ==")
+        safe_print(f"\n== Adding BGM: {bgm_file} ==")
         add_bgm_to_video(args.ffmpeg, ffprobe, final_output, bgm_output, bgm_file, args.dry_run, expected_duration=expected_dur)
     else:
-        print("\nWarning: No BGM mp3 found. Copying non-BGM output to final name.")
+        safe_print("\nWarning: No BGM mp3 found. Copying non-BGM output to final name.")
         if not args.dry_run:
             shutil.copy2(final_output, bgm_output)
 
-    print(f"\nDone. Intermediate (no BGM): {final_output}")
-    print(f"Done. Final output: {bgm_output}")
+    safe_print(f"\nDone. Intermediate (no BGM): {final_output}")
+    safe_print(f"Done. Final output: {bgm_output}")
     return 0
 
 

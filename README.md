@@ -88,14 +88,15 @@ python run.py analyze --video-dir "D:\videos"
 python run.py analyze --video-dir "D:\videos\2022yunqidahui.mp4" --brief "D:\videos\editing_20260511_120000\2022yunqidahui_brief.json"
 ```
 
-### 4.1 测试 `prepare` / `analyze` / `storyboard` / `compose` 的辅助脚本
+### 4.1 测试 `prepare` / `analyze` / `storyboard` / `compose` / `e2e` 的辅助脚本
 
-仓库内新增了四个辅助测试脚本，方便你快速验证命令参数和调用链：
+仓库内新增了五个辅助测试脚本，方便你快速验证命令参数和调用链：
 
 - `scripts\test_prepare.cmd`
 - `scripts\test_analyze.cmd`
 - `scripts\test_storyboard.cmd`
 - `scripts\test_compose.cmd`
+- `scripts\test_e2e.cmd`
 
 对应的 Python 主脚本为：
 
@@ -103,6 +104,7 @@ python run.py analyze --video-dir "D:\videos\2022yunqidahui.mp4" --brief "D:\vid
 - `scripts/test_analyze.py`
 - `scripts/test_storyboard.py`
 - `scripts/test_compose.py`
+- `scripts/test_e2e.py`
 
 直接使用默认测试素材：
 
@@ -111,6 +113,7 @@ scripts\test_prepare.cmd --dry-run
 scripts\test_analyze.cmd --dry-run
 scripts\test_storyboard.cmd --dry-run
 scripts\test_compose.cmd --dry-run
+scripts\test_e2e.cmd --dry-run
 ```
 
 指定单个视频文件：
@@ -120,6 +123,7 @@ scripts\test_prepare.cmd --video-dir "C:\Users\kundaxu\Downloads\xkd\ov-video-ed
 scripts\test_analyze.cmd --video-dir "C:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills\videos\2022yunqidahui.mp4"
 scripts\test_storyboard.cmd --analysis "C:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills\videos"
 scripts\test_compose.cmd --storyboard "C:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills\videos"
+scripts\test_e2e.cmd --video-dir "C:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills\videos\2022yunqidahui.mp4" --user-request "做一个30秒的视频总结vlog"
 ```
 
 如果需要透传更多参数给真实命令，也可以直接追加，例如：
@@ -129,6 +133,7 @@ scripts\test_prepare.cmd --video-dir "D:\videos" --ignore-existing-analysis -- -
 scripts\test_analyze.cmd --video-dir "D:\videos" -- --device CPU --seg-duration 2.5
 scripts\test_storyboard.cmd --analysis "D:\videos" -- --target-duration 30 --mood "轻松愉悦"
 scripts\test_compose.cmd --storyboard "D:\videos" -- --dry-run
+scripts\test_e2e.cmd --video-dir "D:\videos" --ignore-existing-analysis --output-dir "D:\videos\final_output"
 ```
 
 说明：
@@ -138,6 +143,7 @@ scripts\test_compose.cmd --storyboard "D:\videos" -- --dry-run
 - `test_analyze` 的 `--brief`、`--output` 都是可选；不传时仍走 `analyze` 当前的自动发现 / 自动命名逻辑
 - `test_storyboard` 支持传分析结果文件，也支持直接传工作目录；`--output`、`--brief` 都可选
 - `test_compose` 支持传 storyboard 文件，也支持直接传工作目录；`--output-dir` 可选
+- `test_e2e` 会按 `prepare -> analyze -> storyboard -> compose` 顺序串联执行；`--dry-run` 时会打印完整命令链，真正执行时会自动解析 `prepare` 生成的工作区并串联后续阶段
 
 ### 5. 生成分镜
 
@@ -180,6 +186,7 @@ python run.py compose --storyboard "D:\videos\editing_20260511_120000"
 - `python run.py analyze --video-dir ... --output ...`
 - `scripts\test_prepare.cmd ...`
 - `scripts\test_analyze.cmd ...`
+- `scripts\test_e2e.cmd ...`
 - `python run.py storyboard --analysis ...`
 - `python run.py storyboard --analysis ... --output ...`
 - `scripts\test_storyboard.cmd ...`
