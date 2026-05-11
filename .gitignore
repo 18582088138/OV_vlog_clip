@@ -1,0 +1,40 @@
+# Python cache and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+.env
+
+# Large local assets and generated binaries
+bin/
+models/
+resource/bgm/*.mp3
+resource/bgm/*.wav
+resource/bgm/*.flac
+resource/bgm/*.m4a
+
+# Local video inputs and generated workspaces
+videos/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+*.wmv
+
+# Notebook and editor artifacts
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
