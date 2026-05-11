@@ -7,10 +7,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from ov_video_editing_skills import analyze_video
 from ov_video_editing_skills import cli
 from ov_video_editing_skills.bootstrap import bootstrap_environment
-from ov_video_editing_skills.creative_brief import create_creative_brief, save_creative_brief
-from ov_video_editing_skills.generate_storyboard import generate_storyboard
+from ov_video_editing_skills.compose_video import resolve_storyboard_input
+from ov_video_editing_skills.creative_brief import (
+    build_analysis_file_name,
+    build_brief_file_name,
+    build_storyboard_file_name,
+    create_creative_brief,
+    save_creative_brief,
+)
+from ov_video_editing_skills.generate_storyboard import generate_storyboard, resolve_analysis_input, resolve_storyboard_output_path
 from ov_video_editing_skills.prepare_workspace import prepare_workspace
 from ov_video_editing_skills.runtime import runtime_summary
 
@@ -111,7 +119,7 @@ class CreativeFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             video_dir = Path(tmp)
             (video_dir / "clip01.mp4").write_bytes(b"fake-video")
-            existing_analysis = video_dir / "output_vlm.json"
+            existing_analysis = video_dir / build_analysis_file_name("clip01")
             existing_analysis.write_text(
                 json.dumps(
                     {
@@ -145,20 +153,24 @@ class CreativeFlowTests(unittest.TestCase):
                     user_request="做一个30秒的城市漫步vlog",
                 )
 
-            staged_analysis = workspace / "output_vlm.json"
+            staged_analysis = workspace / build_analysis_file_name("clip01")
+            brief_path = workspace / build_brief_file_name("clip01")
             runtime_manifest = json.loads((workspace / "runtime_env.json").read_text(encoding="utf-8"))
 
             self.assertEqual(analysis_info["analysis_mode"], "reuse_existing_output")
             self.assertTrue(staged_analysis.exists())
+            self.assertTrue(brief_path.exists())
             self.assertEqual(staged_analysis.read_text(encoding="utf-8"), existing_analysis.read_text(encoding="utf-8"))
             self.assertEqual(runtime_manifest["analysis_mode"], "reuse_existing_output")
             self.assertEqual(runtime_manifest["analysis_segment_count"], 1)
+            self.assertEqual(runtime_manifest["artifact_base_name"], "clip01")
+            self.assertEqual(Path(runtime_manifest["creative_brief"]), brief_path)
 
     def test_prepare_workspace_can_ignore_existing_analysis_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             video_dir = Path(tmp)
             (video_dir / "clip01.mp4").write_bytes(b"fake-video")
-            (video_dir / "output_vlm.json").write_text(
+            (video_dir / build_analysis_file_name("clip01")).write_text(
                 json.dumps(
                     {
                         "processed_videos": [
@@ -184,7 +196,7 @@ class CreativeFlowTests(unittest.TestCase):
                 )
 
             self.assertEqual(analysis_info["analysis_mode"], "ignore_existing_output")
-            self.assertFalse((workspace / "output_vlm.json").exists())
+            self.assertFalse((workspace / build_analysis_file_name("clip01")).exists())
 
     def test_prepare_workspace_accepts_single_video_file_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,6 +217,79 @@ class CreativeFlowTests(unittest.TestCase):
             self.assertEqual(Path(manifest["workspace_root"]), workspace_root)
             self.assertEqual(manifest["video_count"], 1)
             self.assertEqual(manifest["videos"], [str(video_file)])
+            self.assertEqual(manifest["artifact_base_name"], "clip01")
+            self.assertTrue((workspace / build_brief_file_name("clip01")).exists())
+
+    def test_analyze_resolve_video_input_supports_directory_and_single_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video_file = root / "meeting.mp4"
+            video_file.write_bytes(b"fake-video")
+
+            resolved_root, resolved_videos = analyze_video.resolve_video_input(root)
+            self.assertEqual(resolved_root, root)
+            self.assertEqual(resolved_videos, [video_file])
+
+            resolved_single_root, resolved_single_videos = analyze_video.resolve_video_input(video_file)
+            self.assertEqual(resolved_single_root, root)
+            self.assertEqual(resolved_single_videos, [video_file])
+
+    def test_analyze_resolve_output_path_uses_video_name_related_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "editing_20260511_120000"
+            workspace.mkdir()
+            video_file = root / "meeting.mp4"
+            video_file.write_bytes(b"fake-video")
+            brief_path = workspace / build_brief_file_name("meeting")
+            brief_path.write_text("{}", encoding="utf-8")
+
+            output_path = analyze_video.resolve_output_path(None, root, [video_file], brief_path)
+
+            self.assertEqual(output_path, workspace / build_analysis_file_name("meeting"))
+
+    def test_analyze_resolve_prompt_finds_named_brief_from_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "editing_20260511_120000"
+            workspace.mkdir()
+            video_file = root / "meeting.mp4"
+            video_file.write_bytes(b"fake-video")
+            brief = create_creative_brief("做一个30秒的视频总结vlog，主题：大会回顾，氛围：专业克制")
+            brief_path = save_creative_brief(workspace, brief, build_brief_file_name("meeting"))
+
+            prompt, discovered_brief_path = analyze_video.resolve_prompt(None, workspace, None)
+
+            self.assertEqual(discovered_brief_path, brief_path)
+            self.assertIn("大会回顾", prompt)
+
+    def test_storyboard_resolve_analysis_input_supports_file_and_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis_path = root / build_analysis_file_name("meeting")
+            analysis_path.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(resolve_analysis_input(analysis_path), analysis_path)
+            self.assertEqual(resolve_analysis_input(root), analysis_path)
+
+    def test_storyboard_resolve_output_path_uses_analysis_base_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis_path = root / build_analysis_file_name("meeting")
+            analysis_path.write_text("{}", encoding="utf-8")
+
+            output_path = resolve_storyboard_output_path(None, analysis_path)
+
+            self.assertEqual(output_path, root / build_storyboard_file_name("meeting"))
+
+    def test_compose_resolve_storyboard_input_supports_file_and_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storyboard_path = root / build_storyboard_file_name("meeting")
+            storyboard_path.write_text("{}", encoding="utf-8")
+
+            self.assertEqual(resolve_storyboard_input(storyboard_path), storyboard_path)
+            self.assertEqual(resolve_storyboard_input(root), storyboard_path)
 
     def test_cli_prepare_forwards_only_subcommand_args(self) -> None:
         original_argv = sys.argv[:]

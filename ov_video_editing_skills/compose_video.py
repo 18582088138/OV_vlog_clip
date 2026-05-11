@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from .creative_brief import LEGACY_STORYBOARD_FILE_NAME, STORYBOARD_FILE_SUFFIX
 from .runtime import BGM_DIR, BIN_DIR, ensure_local_requirements, maybe_reexec_in_local_venv
 
 VALID_XFADE_TRANSITIONS = {
@@ -415,6 +416,25 @@ def resolve_output_dir(storyboard_path: Path, override: Optional[str]) -> Path:
     return Path(override) if override else storyboard_path.parent
 
 
+def resolve_storyboard_input(storyboard_input: Path) -> Path:
+    if storyboard_input.is_file():
+        return storyboard_input
+
+    if storyboard_input.is_dir():
+        legacy_candidate = storyboard_input / LEGACY_STORYBOARD_FILE_NAME
+        if legacy_candidate.exists():
+            return legacy_candidate
+
+        named_candidates = sorted(storyboard_input.glob(f"*{STORYBOARD_FILE_SUFFIX}"))
+        if len(named_candidates) == 1:
+            return named_candidates[0]
+        if len(named_candidates) > 1:
+            raise ValueError(f"目录下找到多个 storyboard 文件，请显式指定文件：{storyboard_input}")
+        raise FileNotFoundError(f"目录下未找到 storyboard 文件：{storyboard_input}")
+
+    raise FileNotFoundError(f"storyboard 文件或目录不存在：{storyboard_input}")
+
+
 def build_final_output_name(meta: StoryboardMeta, clips: List[ClipSpec]) -> str:
     theme = sanitize_filename_component(meta.theme, "video")
     duration = sanitize_filename_component(format_duration_component(meta.target_duration, meta.actual_duration, clips), "unknown")
@@ -423,7 +443,7 @@ def build_final_output_name(meta: StoryboardMeta, clips: List[ClipSpec]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="根据 storyboard.json 抽取片段、加字幕并合成成片")
-    parser.add_argument("--storyboard", required=True, help="storyboard.json 路径")
+    parser.add_argument("--storyboard", required=True, help="storyboard JSON 路径，或包含 storyboard 的目录")
     parser.add_argument("--ffmpeg", default=None, help="ffmpeg 路径")
     parser.add_argument("--output-dir", default=None, help="输出目录")
     parser.add_argument("--font_file", "--font-file", dest="font_file", default=None, help="字幕字体文件路径")
@@ -439,13 +459,18 @@ def main() -> int:
         ensure_local_requirements(force=False)
         maybe_reexec_in_local_venv("ov_video_editing_skills.compose_video")
     except Exception as exc:
-        print(f"Error: failed to prepare local .venv: {exc}", file=sys.stderr)
+        print(f"Error: failed to validate current Python environment: {exc}", file=sys.stderr)
         return 1
 
     if not args.ffmpeg:
         args.ffmpeg = find_default_ffmpeg()
 
-    storyboard_path = Path(args.storyboard).resolve()
+    try:
+        storyboard_path = resolve_storyboard_input(Path(args.storyboard).resolve())
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     clips, storyboard_bgm, meta = load_storyboard(storyboard_path)
 
     output_dir = resolve_output_dir(storyboard_path, args.output_dir)

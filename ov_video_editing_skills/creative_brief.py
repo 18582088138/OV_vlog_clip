@@ -20,7 +20,11 @@ REQUIREMENT_PROMPT_TEMPLATE = (
     "描述中必须包含：场景环境、人物动作、画面构图、光线氛围、运镜方式，"
     "并突出与目标风格相关的信息。输出不超过100字。"
 )
-BRIEF_FILE_NAME = "creative_brief.json"
+LEGACY_BRIEF_FILE_NAME = "creative_brief.json"
+BRIEF_FILE_SUFFIX = "_brief.json"
+ANALYSIS_FILE_SUFFIX = "_output_vlm.json"
+LEGACY_STORYBOARD_FILE_NAME = "storyboard.json"
+STORYBOARD_FILE_SUFFIX = "_storyboard.json"
 
 
 @dataclass
@@ -63,6 +67,51 @@ _KEYWORD_CANDIDATES = [
 
 def _clean_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip(" ，,。；;\n\t")
+
+
+def sanitize_artifact_name(value: str | None, fallback: str = "video") -> str:
+    clean = _clean_text(value) or fallback
+    clean = re.sub(r'[<>:"/\\|?*]', "_", clean)
+    clean = re.sub(r"\s+", "_", clean)
+    clean = clean.strip("._ ")
+    return clean or fallback
+
+
+def derive_artifact_base_name(video_root: Path, videos: list[Path]) -> str:
+    if len(videos) == 1:
+        return sanitize_artifact_name(videos[0].stem)
+    return sanitize_artifact_name(video_root.name or "videos")
+
+
+def build_brief_file_name(base_name: str) -> str:
+    return f"{sanitize_artifact_name(base_name)}{BRIEF_FILE_SUFFIX}"
+
+
+def build_analysis_file_name(base_name: str) -> str:
+    return f"{sanitize_artifact_name(base_name)}{ANALYSIS_FILE_SUFFIX}"
+
+
+def build_storyboard_file_name(base_name: str) -> str:
+    return f"{sanitize_artifact_name(base_name)}{STORYBOARD_FILE_SUFFIX}"
+
+
+def is_brief_file_name(file_name: str) -> bool:
+    return file_name == LEGACY_BRIEF_FILE_NAME or file_name.endswith(BRIEF_FILE_SUFFIX)
+
+
+def is_storyboard_file_name(file_name: str) -> bool:
+    return file_name == LEGACY_STORYBOARD_FILE_NAME or file_name.endswith(STORYBOARD_FILE_SUFFIX)
+
+
+def infer_base_name_from_artifact(path: Path) -> str | None:
+    stem = path.stem
+    if stem.endswith("_brief"):
+        return stem[: -len("_brief")]
+    if stem.endswith("_output_vlm"):
+        return stem[: -len("_output_vlm")]
+    if stem.endswith("_storyboard"):
+        return stem[: -len("_storyboard")]
+    return None
 
 
 def _extract_duration_seconds(user_request: str) -> float | None:
@@ -152,8 +201,8 @@ def create_creative_brief(user_request: str | None) -> CreativeBrief:
     return brief
 
 
-def save_creative_brief(workspace_dir: Path, brief: CreativeBrief) -> Path:
-    path = workspace_dir / BRIEF_FILE_NAME
+def save_creative_brief(workspace_dir: Path, brief: CreativeBrief, file_name: str | None = None) -> Path:
+    path = workspace_dir / (file_name or LEGACY_BRIEF_FILE_NAME)
     path.write_text(json.dumps(brief.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
     return path
 
@@ -178,7 +227,21 @@ def discover_creative_brief(*paths: Path | None) -> Path | None:
     for path in paths:
         if path is None:
             continue
-        candidate = path if path.name == BRIEF_FILE_NAME else path.parent / BRIEF_FILE_NAME
-        if candidate.exists():
-            return candidate
+        if path.exists() and path.is_file() and is_brief_file_name(path.name):
+            return path
+
+        search_dir = path if path.is_dir() else path.parent
+        inferred_base = infer_base_name_from_artifact(path) if path.is_file() else None
+        if inferred_base:
+            named_candidate = search_dir / build_brief_file_name(inferred_base)
+            if named_candidate.exists():
+                return named_candidate
+
+        legacy_candidate = search_dir / LEGACY_BRIEF_FILE_NAME
+        if legacy_candidate.exists():
+            return legacy_candidate
+
+        named_candidates = sorted(search_dir.glob(f"*{BRIEF_FILE_SUFFIX}"))
+        if len(named_candidates) == 1:
+            return named_candidates[0]
     return None

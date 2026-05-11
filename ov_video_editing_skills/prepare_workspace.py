@@ -8,7 +8,13 @@ from datetime import datetime
 from pathlib import Path
 
 from .bootstrap import bootstrap_environment
-from .creative_brief import create_creative_brief, save_creative_brief
+from .creative_brief import (
+    build_analysis_file_name,
+    build_brief_file_name,
+    create_creative_brief,
+    derive_artifact_base_name,
+    save_creative_brief,
+)
 from .runtime import write_runtime_manifest
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv"}
@@ -70,10 +76,12 @@ def summarize_analysis_output(analysis_path: Path) -> dict[str, int]:
 def stage_existing_analysis(
     video_dir: Path,
     workspace: Path,
+    artifact_base_name: str,
     ignore_existing_analysis: bool = False,
 ) -> dict[str, object]:
-    analysis_source = video_dir / ANALYSIS_FILE_NAME
-    analysis_target = workspace / ANALYSIS_FILE_NAME
+    candidate_names = [build_analysis_file_name(artifact_base_name), ANALYSIS_FILE_NAME]
+    analysis_source = next((video_dir / name for name in candidate_names if (video_dir / name).exists()), video_dir / candidate_names[0])
+    analysis_target = workspace / build_analysis_file_name(artifact_base_name)
 
     if not analysis_source.exists():
         return {
@@ -114,6 +122,7 @@ def prepare_workspace(
     ignore_existing_analysis: bool = False,
 ) -> tuple[Path, dict[str, str], dict[str, object]]:
     workspace_root, videos = resolve_video_input(video_dir)
+    artifact_base_name = derive_artifact_base_name(workspace_root, videos)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     workspace = workspace_root / f"editing_{timestamp}"
@@ -123,10 +132,11 @@ def prepare_workspace(
         (workspace / "user_input.txt").write_text(user_request, encoding="utf-8")
 
     brief = create_creative_brief(user_request)
-    brief_path = save_creative_brief(workspace, brief)
+    brief_path = save_creative_brief(workspace, brief, build_brief_file_name(artifact_base_name))
     analysis_info = stage_existing_analysis(
         video_dir=workspace_root,
         workspace=workspace,
+        artifact_base_name=artifact_base_name,
         ignore_existing_analysis=ignore_existing_analysis,
     )
 
@@ -142,6 +152,7 @@ def prepare_workspace(
         extra={
             "video_dir": str(video_dir),
             "workspace_root": str(workspace_root),
+            "artifact_base_name": artifact_base_name,
             "video_count": len(videos),
             "videos": [str(path) for path in videos],
             "creative_brief": str(brief_path),
@@ -166,9 +177,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     video_dir = Path(args.video_dir).resolve()
+    brief_output_path = ""
 
     try:
         workspace_root, videos = resolve_video_input(video_dir)
+        artifact_base_name = derive_artifact_base_name(workspace_root, videos)
+        brief_output_path = str(Path(workspace_root) / build_brief_file_name(artifact_base_name))
         print(f"[准备] 找到 {len(videos)} 个视频文件：")
         for video in videos:
             print(f"  {video.name}")
@@ -188,7 +202,14 @@ def main() -> int:
 
     print(f"[准备] 工作区已创建：{workspace}")
     print(f"[准备] 素材根目录：{workspace_root}")
-    print(f"[准备] brief 已生成：{workspace / 'creative_brief.json'}")
+    runtime_manifest = workspace / "runtime_env.json"
+    if runtime_manifest.exists():
+        try:
+            runtime_payload = json.loads(runtime_manifest.read_text(encoding="utf-8"))
+            brief_output_path = str(runtime_payload.get("creative_brief") or brief_output_path)
+        except Exception:
+            pass
+    print(f"[准备] brief 已生成：{brief_output_path}")
     if analysis_info["analysis_mode"] == "reuse_existing_output":
         print(f"[准备] 复用已有分析结果：{analysis_info['analysis_source']} -> {analysis_info['workspace_analysis']}")
     elif analysis_info["analysis_mode"] == "ignore_existing_output":

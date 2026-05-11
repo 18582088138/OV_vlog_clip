@@ -16,12 +16,17 @@ from .creative_brief import (
     DEFAULT_TARGET_DURATION,
     DEFAULT_THEME,
     CreativeBrief,
+    LEGACY_STORYBOARD_FILE_NAME,
+    ANALYSIS_FILE_SUFFIX,
+    build_storyboard_file_name,
     discover_creative_brief,
+    infer_base_name_from_artifact,
     load_creative_brief,
 )
 from .runtime import BGM_DIR
 
 INVALID_SEGMENT_TERMS = ("分析失败", "无法提取帧", "未生成有效描述")
+LEGACY_ANALYSIS_FILE_NAME = "output_vlm.json"
 
 
 @dataclass
@@ -344,10 +349,37 @@ def generate_storyboard(
     return storyboard
 
 
+def resolve_analysis_input(analysis_input: Path) -> Path:
+    if analysis_input.is_file():
+        return analysis_input
+
+    if analysis_input.is_dir():
+        legacy_candidate = analysis_input / LEGACY_ANALYSIS_FILE_NAME
+        if legacy_candidate.exists():
+            return legacy_candidate
+
+        named_candidates = sorted(analysis_input.glob(f"*{ANALYSIS_FILE_SUFFIX}"))
+        if len(named_candidates) == 1:
+            return named_candidates[0]
+        if len(named_candidates) > 1:
+            raise ValueError(f"目录下找到多个分析结果，请显式指定文件：{analysis_input}")
+        raise FileNotFoundError(f"目录下未找到分析结果文件：{analysis_input}")
+
+    raise FileNotFoundError(f"分析结果文件或目录不存在：{analysis_input}")
+
+
+def resolve_storyboard_output_path(explicit_output: str | None, analysis_path: Path) -> Path:
+    if explicit_output:
+        return Path(explicit_output).resolve()
+
+    base_name = infer_base_name_from_artifact(analysis_path) or analysis_path.parent.name or "video"
+    return analysis_path.parent / build_storyboard_file_name(base_name)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="根据 output_vlm.json 生成本地 storyboard.json")
-    parser.add_argument("--analysis", required=True, help="output_vlm.json 路径")
-    parser.add_argument("--output", required=True, help="storyboard.json 输出路径")
+    parser.add_argument("--analysis", required=True, help="分析结果 JSON 路径，或包含分析结果的目录")
+    parser.add_argument("--output", required=False, help="storyboard.json 输出路径；未传时按分析文件名自动生成")
     parser.add_argument("--target-duration", type=float, default=None, help="目标成片时长（秒）；未传时优先读取 creative_brief.json")
     parser.add_argument("--theme", default=None, help="主题")
     parser.add_argument("--mood", default=None, help="氛围")
@@ -355,14 +387,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--must-capture", nargs="*", default=[], help="必须捕捉的关键词，可传多个")
     parser.add_argument("--bgm-style", default=None, help="指定 BGM 风格标签")
     parser.add_argument("--bgm-file", default=None, help="指定 BGM 文件名或绝对路径")
-    parser.add_argument("--brief", default=None, help="creative_brief.json 路径")
+    parser.add_argument("--brief", default=None, help="brief JSON 路径，支持 legacy `creative_brief.json` 或 `<video_name>_brief.json`")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    analysis_path = Path(args.analysis).resolve()
-    output_path = Path(args.output).resolve()
+    try:
+        analysis_path = resolve_analysis_input(Path(args.analysis).resolve())
+        output_path = resolve_storyboard_output_path(args.output, analysis_path)
+    except Exception as exc:
+        print(f"[storyboard] ✗ 失败：{exc}")
+        return 1
+
     brief_path = discover_creative_brief(Path(args.brief).resolve() if args.brief else None, analysis_path, output_path)
 
     try:
@@ -382,7 +419,8 @@ def main() -> int:
         print(f"[storyboard] ✗ 失败：{exc}")
         return 1
 
-    print(f"[storyboard] ✓ 已生成：{args.output}")
+    print(f"[storyboard] 使用分析结果：{analysis_path}")
+    print(f"[storyboard] ✓ 已生成：{output_path}")
     if brief_path:
         print(f"[storyboard] 使用 brief：{brief_path}")
     print(json.dumps(storyboard.get("storyboard_metadata", {}), ensure_ascii=False, indent=2))

@@ -8,7 +8,13 @@ import sys
 import time
 from pathlib import Path
 
-from .creative_brief import DEFAULT_ANALYSIS_PROMPT, discover_creative_brief, load_creative_brief
+from .creative_brief import (
+    DEFAULT_ANALYSIS_PROMPT,
+    build_analysis_file_name,
+    discover_creative_brief,
+    derive_artifact_base_name,
+    load_creative_brief,
+)
 from .runtime import DEFAULT_MODEL_DIR, BIN_DIR, ensure_local_requirements, maybe_reexec_in_local_venv
 
 cv2 = None
@@ -38,6 +44,21 @@ def discover_videos(video_dir: Path) -> list[Path]:
         if file_path.is_file() and file_path.suffix.lower() in VIDEO_EXTENSIONS:
             videos.append(file_path)
     return videos
+
+
+def resolve_video_input(video_input: Path) -> tuple[Path, list[Path]]:
+    if video_input.is_file():
+        if video_input.suffix.lower() not in VIDEO_EXTENSIONS:
+            raise FileNotFoundError(f"不支持的视频文件格式：{video_input}")
+        return video_input.parent, [video_input]
+
+    if video_input.is_dir():
+        videos = discover_videos(video_input)
+        if not videos:
+            raise FileNotFoundError(f"目录中未找到视频文件：{video_input}")
+        return video_input, videos
+
+    raise FileNotFoundError(f"视频目录或文件不存在：{video_input}")
 
 
 def get_video_duration(video_path: Path, ffprobe_path: str | None = None) -> float:
@@ -199,10 +220,10 @@ def process_video(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="视频分析，输出 output_vlm.json")
-    parser.add_argument("--video-dir", required=True, help="视频文件所在目录")
-    parser.add_argument("--output", "--json-file", required=True, dest="output", help="输出 JSON 文件路径")
-    parser.add_argument("--prompt", default=None, help="VLM 分析提示词；未传时可自动读取 creative_brief.json")
-    parser.add_argument("--brief", default=None, help="creative_brief.json 路径")
+    parser.add_argument("--video-dir", required=True, help="视频目录或单个视频文件路径")
+    parser.add_argument("--output", "--json-file", required=False, dest="output", help="输出 JSON 文件路径；未传时按视频名自动生成")
+    parser.add_argument("--prompt", default=None, help="VLM 分析提示词；未传时自动读取同目录下的 brief 文件")
+    parser.add_argument("--brief", default=None, help="brief JSON 路径，支持 legacy `creative_brief.json` 或 `<video_name>_brief.json`")
     parser.add_argument("--model-dir", default=None, help=f"OpenVINO 模型目录（默认：{DEFAULT_MODEL_DIR}）")
     parser.add_argument("--device", default="GPU", choices=["GPU", "CPU"], help="推理设备")
     parser.add_argument("--seg-duration", type=float, default=3.0, help="段时长秒数")
@@ -212,15 +233,27 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_prompt(explicit_prompt: str | None, output_path: Path, brief_arg: str | None) -> tuple[str, Path | None]:
+def resolve_prompt(explicit_prompt: str | None, search_anchor: Path, brief_arg: str | None) -> tuple[str, Path | None]:
     if explicit_prompt:
         return explicit_prompt, None
 
-    brief_path = discover_creative_brief(Path(brief_arg).resolve() if brief_arg else None, output_path)
+    brief_path = discover_creative_brief(Path(brief_arg).resolve() if brief_arg else None, search_anchor)
     if brief_path:
         brief = load_creative_brief(brief_path)
         return brief.analysis_prompt, brief_path
     return DEFAULT_PROMPT, None
+
+
+def resolve_output_path(explicit_output: str | None, video_root: Path, videos: list[Path], brief_path: Path | None) -> Path:
+    if explicit_output:
+        return Path(explicit_output).resolve()
+
+    if brief_path:
+        base_name = derive_artifact_base_name(video_root, videos)
+        return brief_path.parent / build_analysis_file_name(base_name)
+
+    base_name = derive_artifact_base_name(video_root, videos)
+    return video_root / build_analysis_file_name(base_name)
 
 
 def main() -> int:
@@ -230,35 +263,38 @@ def main() -> int:
         maybe_reexec_in_local_venv("ov_video_editing_skills.analyze_video")
         load_runtime_dependencies()
     except Exception as exc:
-        print(f"错误：本地 .venv 准备失败：{exc}", file=sys.stderr)
+        print(f"错误：运行环境检查失败：{exc}", file=sys.stderr)
         return 1
 
     if args.seg_duration <= 0 or args.frames_per_seg < 1 or args.scale <= 0:
         print("错误：参数非法，请检查 seg-duration / frames-per-seg / scale", file=sys.stderr)
         return 1
 
-    video_dir = Path(args.video_dir).resolve()
-    output_path = Path(args.output).resolve()
+    video_input = Path(args.video_dir).resolve()
     model_dir = Path(args.model_dir).resolve() if args.model_dir else DEFAULT_MODEL_DIR
-    prompt, brief_path = resolve_prompt(args.prompt, output_path, args.brief)
+    try:
+        video_root, videos = resolve_video_input(video_input)
+    except Exception as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+
+    prompt, brief_path = resolve_prompt(args.prompt, Path(args.brief).resolve() if args.brief else video_input, args.brief)
+    output_path = resolve_output_path(args.output, video_root, videos, brief_path)
     ffprobe_name = "ffprobe.exe" if sys.platform.startswith("win") else "ffprobe"
     ffprobe_path = str(BIN_DIR / ffprobe_name)
 
     if not model_dir.is_dir():
         print(f"错误：模型目录不存在：{model_dir}", file=sys.stderr)
-        print("请先执行 bootstrap 或 setup-model。", file=sys.stderr)
-        return 1
-
-    videos = discover_videos(video_dir)
-    if not videos:
-        print(f"错误：目录中未找到视频文件：{video_dir}", file=sys.stderr)
+        print("请先按 README 中的说明手动放置模型目录。", file=sys.stderr)
         return 1
 
     print(f"[分析] 找到 {len(videos)} 个视频文件")
+    print(f"[分析] 输入根目录：{video_root}")
     print(f"[分析] 模型：{model_dir}")
     print(f"[分析] 设备：{args.device}")
     if brief_path:
         print(f"[分析] 使用 brief：{brief_path}")
+    print(f"[分析] 输出文件：{output_path}")
     print(f"[分析] 段时长：{args.seg_duration}s，每段 {args.frames_per_seg} 帧，缩放 {args.scale}")
 
     total_start = time.time()
