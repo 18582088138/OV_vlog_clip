@@ -35,8 +35,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..analyze_video import VIDEO_EXTENSIONS
-from .models import AppState, TaskConfig, TaskName, TaskStatus, WorkspaceArtifact
-from .services import GuiTaskService, build_artifact_preview, collect_workspace_artifacts
+from .models import AppState, DiagnosticIssue, TaskConfig, TaskName, TaskStatus, WorkspaceArtifact
+from .services import GuiTaskService, build_artifact_preview, collect_diagnostic_issues, collect_environment_checks, collect_workspace_artifacts, format_environment_checks
 from .settings import describe_default_config_source, load_task_config
 
 INTEL_STYLE_SHEET = """
@@ -115,6 +115,27 @@ QLabel[role="muted"] {
 QStatusBar {
     background: #eaf4fb;
     color: #004a86;
+}
+QLabel[severity="error"] {
+    background: #fff1f2;
+    color: #b42318;
+    border: 1px solid #fecdca;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+QLabel[severity="warning"] {
+    background: #fffaeb;
+    color: #b54708;
+    border: 1px solid #fedf89;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+QLabel[severity="info"] {
+    background: #eff8ff;
+    color: #175cd3;
+    border: 1px solid #b2ddff;
+    border-radius: 10px;
+    padding: 10px 12px;
 }
 """
 
@@ -423,6 +444,7 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(self._build_main_config_group())
         left_layout.addWidget(self._build_settings_summary_group())
+        left_layout.addWidget(self._build_preflight_group())
         left_layout.addWidget(self._build_action_group())
         left_layout.addStretch(1)
 
@@ -547,6 +569,38 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.settings_button, 3, 0, 1, 2)
         return group
 
+    def _build_preflight_group(self) -> QGroupBox:
+        group = QGroupBox("运行前检查", self)
+        layout = QVBoxLayout(group)
+
+        summary = QLabel("集中展示 Python、模型、ffmpeg、BGM 与输入数据状态，并同步提示高风险缺失项。", self)
+        summary.setProperty("role", "subtitle")
+        summary.setWordWrap(True)
+
+        controls = QHBoxLayout()
+        self.refresh_preflight_button = QPushButton("刷新检查", self)
+        self.refresh_preflight_button.setProperty("variant", "secondary")
+        self.refresh_preflight_button.style().unpolish(self.refresh_preflight_button)
+        self.refresh_preflight_button.style().polish(self.refresh_preflight_button)
+        self.refresh_preflight_button.clicked.connect(self._refresh_preflight_panel)
+        controls.addWidget(self.refresh_preflight_button)
+        controls.addStretch(1)
+
+        self.issue_banner = QLabel("当前没有高优先级问题。", self)
+        self.issue_banner.setWordWrap(True)
+        self.issue_banner.setProperty("severity", "info")
+
+        self.preflight_view = QPlainTextEdit(self)
+        self.preflight_view.setReadOnly(True)
+        self.preflight_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.preflight_view.setMinimumHeight(220)
+
+        layout.addWidget(summary)
+        layout.addLayout(controls)
+        layout.addWidget(self.issue_banner)
+        layout.addWidget(self.preflight_view)
+        return group
+
     def _build_status_group(self) -> QGroupBox:
         group = QGroupBox("当前状态", self)
         layout = QVBoxLayout(group)
@@ -638,6 +692,7 @@ class MainWindow(QMainWindow):
         self._refresh_settings_summary()
         self._update_selected_video_preview()
         self._refresh_artifact_browser()
+        self._refresh_preflight_panel()
 
     def _append_log(self, text: str) -> None:
         normalized = str(text).rstrip("\n")
@@ -664,11 +719,33 @@ class MainWindow(QMainWindow):
         ]
         self.settings_summary_label.setText("\n".join(summary))
 
+    def _refresh_preflight_panel(self) -> None:
+        config = self._collect_config()
+        checks = collect_environment_checks(config)
+        self.preflight_view.setPlainText(format_environment_checks(checks))
+        issues = collect_diagnostic_issues(self.state, config)
+        self._render_issue_banner(issues)
+
+    def _render_issue_banner(self, issues: list[DiagnosticIssue]) -> None:
+        if not issues:
+            self.issue_banner.setProperty("severity", "info")
+            self.issue_banner.setText("当前没有高优先级问题。")
+        else:
+            top_issue = next((issue for issue in issues if issue.severity == "error"), issues[0])
+            self.issue_banner.setProperty("severity", top_issue.severity if top_issue.severity in {"error", "warning"} else "info")
+            parts = [top_issue.summary, top_issue.detail]
+            if top_issue.suggestion:
+                parts.append(f"建议：{top_issue.suggestion}")
+            self.issue_banner.setText("\n".join(parts))
+        self.issue_banner.style().unpolish(self.issue_banner)
+        self.issue_banner.style().polish(self.issue_banner)
+
     def _set_buttons_enabled(self, enabled: bool) -> None:
         for button in [self.prepare_button, self.analyze_button, self.storyboard_button, self.compose_button, self.e2e_button, self.settings_button]:
             button.setEnabled(enabled)
         self.refresh_artifacts_button.setEnabled(enabled)
         self.open_artifact_button.setEnabled(enabled)
+        self.refresh_preflight_button.setEnabled(enabled)
 
     def _start_task(self, task_name: TaskName) -> None:
         config = self._collect_config()
@@ -689,6 +766,7 @@ class MainWindow(QMainWindow):
         self.state.last_result = result
         self._refresh_status()
         self._refresh_form_from_state()
+        self._refresh_preflight_panel()
         if result.succeeded:
             self._append_log(f"[gui] 任务成功：{result.task_name.value}")
             final_video = Path(result.artifacts.get("final_video", "")) if result.artifacts.get("final_video") else None
@@ -704,6 +782,7 @@ class MainWindow(QMainWindow):
         self.state.status = TaskStatus.FAILED
         self._refresh_status()
         self._append_log(f"[gui] 异常：{message}")
+        self._refresh_preflight_panel()
         QMessageBox.critical(self, "执行异常", message)
 
     def _refresh_form_from_state(self) -> None:
@@ -711,6 +790,7 @@ class MainWindow(QMainWindow):
         if self.state.workspace_dir:
             self.workspace_label.setText(f"工作区：{self.state.workspace_dir}")
         self._refresh_artifact_browser()
+        self._refresh_preflight_panel()
 
     def _reload_default_config(self) -> None:
         self.default_config = load_task_config(self.default_config_path)
@@ -724,6 +804,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             self.session_config = dialog.build_config()
             self._refresh_settings_summary()
+            self._refresh_preflight_panel()
             self._append_log("[gui] 已应用 Settings 临时参数（仅当前会话生效）")
 
     def _refresh_artifact_browser(self) -> None:
@@ -804,6 +885,7 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "选择模型目录", self.model_dir_edit.text().strip() or "")
         if directory:
             self.model_dir_edit.setText(directory)
+            self._refresh_preflight_panel()
 
     def _resolve_preview_video_path(self) -> Path | None:
         raw_value = self.video_input_edit.text().strip()
@@ -822,6 +904,7 @@ class MainWindow(QMainWindow):
 
     def _update_selected_video_preview(self) -> None:
         self.video_player_widget.set_video(self._resolve_preview_video_path())
+        self._refresh_preflight_panel()
 
 
 def run_gui(settings_path: str | None = None) -> int:
