@@ -21,6 +21,8 @@
 - `pyproject.toml`：`wheel` 打包配置与可安装命令入口
 - `ov_video_editing_e2e.spec`：Windows `exe` 打包配置（PyInstaller）
 - `build_e2e_exe.cmd`：Windows 下一键构建 `ov-video-editing-e2e.exe`
+- `ov_video_editing_gui.spec`：Windows GUI 打包配置（PyInstaller）
+- `build_gui_exe.cmd`：Windows 下一键构建 `ov-video-editing-gui.exe`
 
 ## 可移植打包
 
@@ -105,6 +107,36 @@ dist\ov-video-editing-e2e.exe --video-dir "D:\videos" --dry-run
 - `compose` 输出效果仍建议在目标机器上实际验证
 - `build_e2e_exe.cmd` 会优先使用当前激活 `conda` 环境中的 `pyinstaller.exe`
 
+### 3. 构建 Windows GUI 包（Phase 4 第一批）
+
+当前仓库已经补齐 GUI 的 Windows `PyInstaller` 打包入口，优先提供单目录包，便于连同 Qt 运行时一起分发。
+
+推荐直接使用：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+conda activate ov_env_py312
+python -m pip install -r requirements-build.txt
+python -m pip install -r requirements-gui.txt
+build_gui_exe.cmd
+```
+
+如需透传额外参数给 `PyInstaller`，可直接追加：
+
+```bat
+build_gui_exe.cmd --noconfirm
+```
+
+成功后，GUI 可执行文件位于：
+
+- `dist\ov-video-editing-gui\ov-video-editing-gui.exe`
+
+说明：
+
+- 当前优先支持 Windows GUI 单目录打包闭环。
+- GUI 打包不会默认把模型、视频、`ffmpeg` 二进制打进仓库；仍需要按 `bin/`、`models/`、`resource/` 目录规范手动准备外部资源。
+- `default_config.json` 会随 GUI 包一起带出，用于首次启动的默认参数。
+
 ## 快速开始
 
 ### GUI 启动（Phase 1 骨架）
@@ -152,7 +184,7 @@ ov-video-editing-gui
 
 说明：
 
-- 当前 GUI 已完成 Phase 2，并继续推进 Phase 3：支持默认配置、Settings 临时参数、视频预览、工作区产物浏览、storyboard 摘要预览，以及运行前检查 / 缺失依赖提示。
+- 当前 GUI 已完成 Phase 2，并继续推进 Phase 3/4：支持默认配置、Settings 临时参数、视频预览、工作区产物浏览、storyboard 摘要预览、运行前检查 / 缺失依赖提示，以及 Windows GUI `PyInstaller` 打包入口。
 - 若未安装 `PySide6`，GUI 启动时会给出明确提示，不会影响 CLI 主流程。
 
 ### 1. 激活现有 `conda ov_env_py312`

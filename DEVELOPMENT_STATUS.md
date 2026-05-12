@@ -295,6 +295,10 @@
 - 已补第二批 Phase 3 能力：
   - 运行前检查面板，可集中查看 Python、输入数据、模型目录、`ffmpeg` / `ffprobe` 与 BGM 状态
   - 任务失败后基于日志关键字提示缺失依赖和高风险问题，便于快速排障
+- 已开始推进 Phase 4 第一批能力：
+  - 新增 `ov_video_editing_gui.spec`，用于 Windows GUI `PyInstaller` 打包
+  - 新增 `build_gui_exe.cmd`，用于 Windows 下一键构建 GUI 单目录包
+  - GUI 打包默认携带 `default_config.json`，并复用当前 `bin/`、`models/`、`resource/` 资源定位约定
 
 ---
 

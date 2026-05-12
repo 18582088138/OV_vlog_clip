@@ -195,6 +195,22 @@ class CommandScriptTests(unittest.TestCase):
         self.assertIn('ov-video-editing-e2e = "ov_video_editing_skills.e2e:main"', content)
         self.assertIn('ov-video-editing-gui = "ov_video_editing_skills.gui.launcher:main"', content)
 
+    def test_gui_pyinstaller_assets_exist(self) -> None:
+        gui_entry = self.repo_root / "gui_entry.py"
+        gui_spec = self.repo_root / "ov_video_editing_gui.spec"
+        gui_build_script = self.repo_root / "build_gui_exe.cmd"
+
+        self.assertTrue(gui_entry.exists())
+        self.assertTrue(gui_spec.exists())
+        self.assertTrue(gui_build_script.exists())
+
+        self.assertIn("ov_video_editing_skills.gui.launcher", gui_entry.read_text(encoding="utf-8"))
+        gui_spec_content = gui_spec.read_text(encoding="utf-8")
+        self.assertIn('name="ov-video-editing-gui"', gui_spec_content)
+        self.assertIn("sys.path.insert(0, str(project_root))", gui_spec_content)
+        self.assertIn('"ov_video_editing_skills.gui.qt_app"', gui_spec_content)
+        self.assertIn("ov_video_editing_gui.spec", gui_build_script.read_text(encoding="utf-8"))
+
     def test_gui_launcher_parser_supports_settings_path(self) -> None:
         args = gui_launcher.build_parser().parse_args(["--settings", "custom.json"])
 
