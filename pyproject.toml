@@ -19,6 +19,7 @@ Homepage = "https://github.com/18582088138/OV_FunClip"
 [project.scripts]
 ov-video-editing-skills = "ov_video_editing_skills.cli:main"
 ov-video-editing-e2e = "ov_video_editing_skills.e2e:main"
+ov-video-editing-gui = "ov_video_editing_skills.gui.launcher:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "ov_video_editing_skills.__version__" }
@@ -26,6 +27,7 @@ dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.dynamic.optional-dependencies]
 build = { file = ["requirements-build.txt"] }
+gui = { file = ["requirements-gui.txt"] }
 
 [tool.setuptools]
 include-package-data = false

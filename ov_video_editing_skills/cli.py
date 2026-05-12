@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("storyboard", help="从 output_vlm.json 生成 storyboard.json")
     subparsers.add_parser("compose", help="根据 storyboard.json 合成最终视频")
     subparsers.add_parser("e2e", help="串联执行 prepare/analyze/storyboard/compose")
+    subparsers.add_parser("gui", help="启动桌面 GUI")
     return parser
 
 
@@ -62,6 +63,10 @@ def main() -> int:
         return run_subcommand(compose_main, remaining)
     if args.command == "e2e":
         return run_subcommand(e2e_main, remaining)
+    if args.command == "gui":
+        from .gui.launcher import main as gui_main
+
+        return gui_main(remaining)
 
     parser.print_help()
     return 0

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ov_video_editing_skills import cli as package_cli
 from ov_video_editing_skills import e2e as package_e2e
+from ov_video_editing_skills.gui import launcher as gui_launcher
 
 
 def load_module(module_name: str, file_path: Path):
@@ -174,6 +175,12 @@ class CommandScriptTests(unittest.TestCase):
 
         self.assertEqual(args.command, "e2e")
 
+    def test_main_cli_exposes_gui_subcommand(self) -> None:
+        parser = package_cli.build_parser()
+        args = parser.parse_args(["gui"])
+
+        self.assertEqual(args.command, "gui")
+
     def test_package_e2e_default_video_input_prefers_repo_fixture(self) -> None:
         default_path = package_e2e.default_video_input(self.repo_root)
 
@@ -186,6 +193,12 @@ class CommandScriptTests(unittest.TestCase):
 
         self.assertIn('ov-video-editing-skills = "ov_video_editing_skills.cli:main"', content)
         self.assertIn('ov-video-editing-e2e = "ov_video_editing_skills.e2e:main"', content)
+        self.assertIn('ov-video-editing-gui = "ov_video_editing_skills.gui.launcher:main"', content)
+
+    def test_gui_launcher_parser_supports_settings_path(self) -> None:
+        args = gui_launcher.build_parser().parse_args(["--settings", "custom.json"])
+
+        self.assertEqual(args.settings, "custom.json")
 
     def test_e2e_extract_workspace_from_prepare_output_supports_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

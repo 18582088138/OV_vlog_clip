@@ -17,6 +17,7 @@
 - `ov_video_editing_skills/`：核心 Python 包
 - `resource/bgm/`：本地 BGM 目录
 - `requirements.txt`：Python 依赖
+- `requirements-gui.txt`：GUI 依赖
 - `pyproject.toml`：`wheel` 打包配置与可安装命令入口
 - `ov_video_editing_e2e.spec`：Windows `exe` 打包配置（PyInstaller）
 - `build_e2e_exe.cmd`：Windows 下一键构建 `ov-video-editing-e2e.exe`
@@ -105,6 +106,41 @@ dist\ov-video-editing-e2e.exe --video-dir "D:\videos" --dry-run
 - `build_e2e_exe.cmd` 会优先使用当前激活 `conda` 环境中的 `pyinstaller.exe`
 
 ## 快速开始
+
+### GUI 启动（Phase 1 骨架）
+
+当前仓库已经加入 GUI 基础骨架，优先用于：
+
+- 配置视频输入 / 用户请求 / 输出目录
+- 调用 `prepare` / `analyze` / `storyboard` / `compose` / `e2e`
+- 查看实时日志
+- 保存本地 GUI 配置
+
+安装 GUI 依赖：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+conda activate ov_env_py312
+python -m pip install -r requirements-gui.txt
+```
+
+启动方式：
+
+```bat
+python run.py gui
+```
+
+或者安装为包后启动：
+
+```bat
+ov-video-editing-skills gui
+ov-video-editing-gui
+```
+
+说明：
+
+- 当前 GUI 处于 Phase 1 / Phase 2 过渡阶段，重点是骨架与任务调度打通。
+- 若未安装 `PySide6`，GUI 启动时会给出明确提示，不会影响 CLI 主流程。
 
 ### 1. 激活现有 `conda ov_env_py312`
 
