@@ -6,10 +6,15 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+*.egg-info/
 
 # Local environments
 .venv/
 .env
+
+# Build outputs
+build/
+dist/
 
 # Large local assets and generated binaries
 bin/
@@ -33,6 +38,9 @@ videos/
 .ipynb_checkpoints/
 .vscode/
 .idea/
+
+# GUI local settings
+gui-settings.json
 
 # Logs and temp files
 *.log
