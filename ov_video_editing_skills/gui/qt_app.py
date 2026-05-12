@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QListWidget,
     QListWidgetItem,
+    QScrollArea,
     QSizePolicy,
     QStatusBar,
     QTextEdit,
@@ -272,15 +273,24 @@ class SettingsDialog(QDialog):
         self.default_config = replace(default_config)
         self.setWindowTitle("Settings - 临时参数")
         self.resize(720, 560)
+        self.setMinimumSize(560, 420)
 
         layout = QVBoxLayout(self)
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        scroll_content = QWidget(self)
+        content_layout = QVBoxLayout(scroll_content)
+
         summary = QLabel(
             f"当前参数默认来自：{default_source}\n通过本窗口修改的参数仅在当前 GUI 会话中生效，不会覆盖 default config。",
             self,
         )
         summary.setWordWrap(True)
         summary.setProperty("role", "subtitle")
-        layout.addWidget(summary)
+        content_layout.addWidget(summary)
 
         form_group = QGroupBox("临时配置", self)
         form = QFormLayout(form_group)
@@ -317,7 +327,10 @@ class SettingsDialog(QDialog):
         form.addRow("", self.skip_ffmpeg_checkbox)
         form.addRow("", self.skip_model_checkbox)
 
-        layout.addWidget(form_group)
+        content_layout.addWidget(form_group)
+        content_layout.addStretch(1)
+        scroll_area.setWidget(scroll_content)
+        layout.addWidget(scroll_area)
 
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
         self.reset_button = QPushButton("恢复 default config", self)
@@ -421,13 +434,20 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("OV Video Editing Skills GUI")
         self.resize(1360, 860)
+        self.setMinimumSize(960, 640)
         self.setStyleSheet(INTEL_STYLE_SHEET)
         self._build_ui()
         self._load_config_into_form(self.session_config)
         self._append_log(f"[gui] 已加载 default config：{self.default_config_source}")
 
     def _build_ui(self) -> None:
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
         central = QWidget(self)
+        central.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(16, 16, 16, 16)
         root_layout.setSpacing(14)
@@ -460,7 +480,8 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(left_panel, 4)
         body_layout.addWidget(right_panel, 7)
         root_layout.addLayout(body_layout)
-        self.setCentralWidget(central)
+        scroll_area.setWidget(central)
+        self.setCentralWidget(scroll_area)
 
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("就绪")

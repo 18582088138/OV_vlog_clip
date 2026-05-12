@@ -199,17 +199,30 @@ class CommandScriptTests(unittest.TestCase):
         gui_entry = self.repo_root / "gui_entry.py"
         gui_spec = self.repo_root / "ov_video_editing_gui.spec"
         gui_build_script = self.repo_root / "build_gui_exe.cmd"
+        qt_app = self.repo_root / "ov_video_editing_skills" / "gui" / "qt_app.py"
 
         self.assertTrue(gui_entry.exists())
         self.assertTrue(gui_spec.exists())
         self.assertTrue(gui_build_script.exists())
+        self.assertTrue(qt_app.exists())
 
         self.assertIn("ov_video_editing_skills.gui.launcher", gui_entry.read_text(encoding="utf-8"))
         gui_spec_content = gui_spec.read_text(encoding="utf-8")
+        qt_app_content = qt_app.read_text(encoding="utf-8")
         self.assertIn('name="ov-video-editing-gui"', gui_spec_content)
         self.assertIn("sys.path.insert(0, str(project_root))", gui_spec_content)
+        self.assertIn("collect_dynamic_libs", gui_spec_content)
+        self.assertIn('collect_dynamic_libs("openvino")', gui_spec_content)
+        self.assertIn('collect_dynamic_libs("openvino_genai")', gui_spec_content)
+        self.assertIn('collect_dynamic_libs("openvino_tokenizers")', gui_spec_content)
+        self.assertIn('collect_submodules("openvino")', gui_spec_content)
+        self.assertIn('collect_submodules("openvino_genai")', gui_spec_content)
+        self.assertIn('collect_submodules("openvino_tokenizers")', gui_spec_content)
+        self.assertIn('collect_data_files("openvino", includes=["libs/*.json"])', gui_spec_content)
         self.assertIn('"ov_video_editing_skills.gui.qt_app"', gui_spec_content)
         self.assertIn("ov_video_editing_gui.spec", gui_build_script.read_text(encoding="utf-8"))
+        self.assertIn("QScrollArea", qt_app_content)
+        self.assertGreaterEqual(qt_app_content.count("setWidgetResizable(True)"), 2)
 
     def test_gui_launcher_parser_supports_settings_path(self) -> None:
         args = gui_launcher.build_parser().parse_args(["--settings", "custom.json"])

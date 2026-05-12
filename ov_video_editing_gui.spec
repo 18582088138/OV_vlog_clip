@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 spec_path = Path(globals().get("SPEC") or globals().get("SPECPATH")).resolve()
 project_root = spec_path.parent if spec_path.is_file() else spec_path
@@ -17,15 +17,25 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 gui_datas = collect_data_files("ov_video_editing_skills.gui", includes=["default_config.json"])
+openvino_datas = collect_data_files("openvino", includes=["libs/*.json"])
+openvino_binaries = collect_dynamic_libs("openvino")
+openvino_binaries += collect_dynamic_libs("openvino_genai")
+openvino_binaries += collect_dynamic_libs("openvino_tokenizers")
 gui_hiddenimports = sorted(
     set(
         collect_submodules("ov_video_editing_skills.gui")
+        + collect_submodules("openvino")
+        + collect_submodules("openvino_genai")
+        + collect_submodules("openvino_tokenizers")
         + [
             "ov_video_editing_skills.gui.qt_app",
             "ov_video_editing_skills.gui.launcher",
             "ov_video_editing_skills.gui.services",
             "ov_video_editing_skills.gui.settings",
             "ov_video_editing_skills.gui.models",
+            "openvino",
+            "openvino_genai",
+            "openvino_tokenizers",
         ]
     )
 )
@@ -33,8 +43,8 @@ gui_hiddenimports = sorted(
 a = Analysis(
     [str(pyinstaller_entry)],
     pathex=[str(project_root)],
-    binaries=[],
-    datas=gui_datas,
+    binaries=openvino_binaries,
+    datas=gui_datas + openvino_datas,
     hiddenimports=gui_hiddenimports,
     hookspath=[],
     hooksconfig={},
