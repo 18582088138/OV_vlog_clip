@@ -32,5 +32,8 @@ gui = { file = ["requirements-gui.txt"] }
 [tool.setuptools]
 include-package-data = false
 
+[tool.setuptools.package-data]
+"ov_video_editing_skills.gui" = ["default_config.json"]
+
 [tool.setuptools.packages.find]
 include = ["ov_video_editing_skills*"]

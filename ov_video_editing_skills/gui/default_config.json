@@ -1,0 +1,17 @@
+{
+  "video_input": "",
+  "user_request": "做一个30秒的视频总结vlog",
+  "output_dir": "",
+  "model_dir": "{DEFAULT_MODEL_DIR}",
+  "ffmpeg_path": "{DEFAULT_FFMPEG}",
+  "font_file": "",
+  "bgm_file": "",
+  "bgm_style": "",
+  "brief_path": "",
+  "analysis_path": "",
+  "storyboard_path": "",
+  "device": "GPU",
+  "ignore_existing_analysis": false,
+  "skip_ffmpeg": false,
+  "skip_model": false
+}
