@@ -278,6 +278,21 @@
 - `runtime_summary()` 使用当前 Python / conda 信息
 - `bootstrap_environment()` 只做检查，不做自动下载 / 安装
 
+### 4.8 GUI 当前进展
+
+已完成：
+
+- GUI 主界面已收敛为 `输入数据`、`模型路径`、`设备` 三项主参数。
+- 其余路径和运行开关已集中到 `Settings` 对话框，并以 `default config` 为默认来源。
+- 主界面已支持输入视频预览，`compose` / `e2e` 成功后可弹窗播放成片。
+- 已进入 Phase 3 的首批实现：
+  - 浏览 `user_input.txt`
+  - 浏览 `*_brief.json`
+  - 浏览 `*_output_vlm.json`
+  - 浏览 `*_storyboard.json`
+  - 浏览 `runtime_env.json`
+  - 对 storyboard 提供结构化摘要预览，便于检查分镜数量、字幕、转场与 BGM 结果
+
 ---
 
 ## 5. 当前关键文件变更
