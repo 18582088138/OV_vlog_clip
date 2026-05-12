@@ -111,6 +111,25 @@ class WorkspaceArtifact:
 
 
 @dataclass
+class EnvironmentCheck:
+    key: str
+    label: str
+    status: str
+    detail: str
+    suggestion: str = ""
+    blocking: bool = False
+
+
+@dataclass
+class DiagnosticIssue:
+    key: str
+    severity: str
+    summary: str
+    detail: str
+    suggestion: str = ""
+
+
+@dataclass
 class AppState:
     config: TaskConfig = field(default_factory=TaskConfig)
     status: TaskStatus = TaskStatus.IDLE

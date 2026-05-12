@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable
@@ -12,8 +13,8 @@ from ..compose_video import main as compose_main
 from ..e2e import DEFAULT_REQUEST, derive_artifact_paths, extract_workspace_from_prepare_output, load_runtime_paths, main as e2e_main
 from ..generate_storyboard import main as storyboard_main
 from ..prepare_workspace import main as prepare_main
-from ..runtime import safe_print
-from .models import AppState, TaskConfig, TaskName, TaskResult, TaskStatus, WorkspaceArtifact
+from ..runtime import BGM_DIR, current_python_path, current_conda_env_name, min_python_display, python_version_supported, safe_print
+from .models import AppState, DiagnosticIssue, EnvironmentCheck, TaskConfig, TaskName, TaskResult, TaskStatus, WorkspaceArtifact
 
 LogCallback = Callable[[str], None]
 FINAL_OUTPUT_PREFIX = "Done. Final output: "
@@ -272,6 +273,225 @@ def build_artifact_preview(artifact: WorkspaceArtifact) -> str:
         return _truncate_preview(json.dumps(payload, ensure_ascii=False, indent=2))
 
     return _truncate_preview(text)
+
+
+def _audio_file_extensions() -> tuple[str, ...]:
+    return (".mp3", ".wav", ".flac", ".aac", ".m4a")
+
+
+def collect_environment_checks(config: TaskConfig) -> list[EnvironmentCheck]:
+    checks: list[EnvironmentCheck] = []
+
+    python_detail = f"当前解释器：{current_python_path()}"
+    python_suggestion = "" if python_version_supported() else f"请切换到 Python >= {min_python_display()} 的环境。"
+    checks.append(
+        EnvironmentCheck(
+            key="python",
+            label="Python 环境",
+            status="ready" if python_version_supported() else "error",
+            detail=python_detail,
+            suggestion=python_suggestion,
+            blocking=not python_version_supported(),
+        )
+    )
+
+    conda_env = current_conda_env_name().strip()
+    checks.append(
+        EnvironmentCheck(
+            key="conda_env",
+            label="Conda 环境",
+            status="ready" if conda_env else "warning",
+            detail=f"当前环境：{conda_env or '未检测到 CONDA_DEFAULT_ENV'}",
+            suggestion="如你依赖 conda 环境，请先执行 conda activate 目标环境。" if not conda_env else "",
+            blocking=False,
+        )
+    )
+
+    input_value = str(config.video_input or "").strip()
+    input_exists = bool(input_value) and Path(input_value).exists()
+    checks.append(
+        EnvironmentCheck(
+            key="video_input",
+            label="输入数据",
+            status="ready" if input_exists else ("warning" if not input_value else "error"),
+            detail=input_value or "尚未选择视频目录或单视频文件。",
+            suggestion="请选择输入视频目录或单个视频文件。" if not input_exists else "",
+            blocking=bool(input_value) and not input_exists,
+        )
+    )
+
+    model_path = Path(str(config.model_dir or "").strip()) if str(config.model_dir or "").strip() else None
+    if config.skip_model:
+        checks.append(
+            EnvironmentCheck(
+                key="model_dir",
+                label="模型目录",
+                status="skipped",
+                detail="已启用 skip-model，本轮不检查模型目录。",
+                suggestion="如需真实运行 analyze / e2e，请关闭 skip-model 并确认模型目录存在。",
+                blocking=False,
+            )
+        )
+    else:
+        model_exists = bool(model_path and model_path.exists())
+        checks.append(
+            EnvironmentCheck(
+                key="model_dir",
+                label="模型目录",
+                status="ready" if model_exists else "error",
+                detail=str(model_path) if model_path else "主界面未设置模型路径。",
+                suggestion="请在主界面选择模型目录，或使用 default config 中的默认路径。" if not model_exists else "",
+                blocking=not model_exists,
+            )
+        )
+
+    ffmpeg_value = str(config.ffmpeg_path or "").strip()
+    ffmpeg_path = Path(ffmpeg_value) if ffmpeg_value else None
+    ffprobe_path = None
+    if ffmpeg_path is not None:
+        ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        ffprobe_path = ffmpeg_path.with_name(ffprobe_name)
+    if config.skip_ffmpeg:
+        checks.append(
+            EnvironmentCheck(
+                key="ffmpeg",
+                label="ffmpeg / ffprobe",
+                status="skipped",
+                detail="已启用 skip-ffmpeg，本轮不检查 ffmpeg / ffprobe。",
+                suggestion="如需真实合成视频，请关闭 skip-ffmpeg 并确认 ffmpeg / ffprobe 可用。",
+                blocking=False,
+            )
+        )
+    else:
+        ffmpeg_exists = bool(ffmpeg_path and ffmpeg_path.exists())
+        ffprobe_exists = bool(ffprobe_path and ffprobe_path.exists())
+        checks.append(
+            EnvironmentCheck(
+                key="ffmpeg",
+                label="ffmpeg / ffprobe",
+                status="ready" if ffmpeg_exists and ffprobe_exists else "error",
+                detail=(
+                    f"ffmpeg：{ffmpeg_path or '未设置'}\nffprobe：{ffprobe_path or '未推导'}"
+                ),
+                suggestion="请在 Settings 中指定 ffmpeg 路径，并确保同目录存在 ffprobe。" if not (ffmpeg_exists and ffprobe_exists) else "",
+                blocking=not (ffmpeg_exists and ffprobe_exists),
+            )
+        )
+
+    bgm_value = str(config.bgm_file or "").strip()
+    if bgm_value:
+        bgm_path = Path(bgm_value)
+        checks.append(
+            EnvironmentCheck(
+                key="bgm",
+                label="BGM 资源",
+                status="ready" if bgm_path.exists() else "warning",
+                detail=str(bgm_path),
+                suggestion="指定的 BGM 文件不存在时，compose 会回退到无 BGM 或 storyboard 自带设置。" if not bgm_path.exists() else "",
+                blocking=False,
+            )
+        )
+    else:
+        bgm_dir_exists = BGM_DIR.exists()
+        has_bgm = bgm_dir_exists and any(path.suffix.lower() in _audio_file_extensions() for path in BGM_DIR.iterdir() if path.is_file())
+        checks.append(
+            EnvironmentCheck(
+                key="bgm",
+                label="BGM 资源",
+                status="ready" if has_bgm else "warning",
+                detail=f"默认目录：{BGM_DIR}",
+                suggestion="当前未指定 BGM 文件；如需稳定背景音乐，建议在 Settings 中选择文件或向 resource/bgm/ 放入音频。" if not has_bgm else "",
+                blocking=False,
+            )
+        )
+
+    return checks
+
+
+def format_environment_checks(checks: list[EnvironmentCheck]) -> str:
+    if not checks:
+        return "当前没有可展示的运行前检查结果。"
+    icon_map = {"ready": "✓", "warning": "!", "error": "✗", "skipped": "-"}
+    lines: list[str] = []
+    for check in checks:
+        lines.append(f"[{icon_map.get(check.status, '?')}] {check.label}")
+        lines.append(f"  {check.detail}")
+        if check.suggestion:
+            lines.append(f"  建议：{check.suggestion}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def collect_diagnostic_issues(state: AppState, config: TaskConfig) -> list[DiagnosticIssue]:
+    issues: list[DiagnosticIssue] = []
+    for check in collect_environment_checks(config):
+        if check.status == "error":
+            issues.append(
+                DiagnosticIssue(
+                    key=f"preflight:{check.key}",
+                    severity="error",
+                    summary=f"运行前检查失败：{check.label}",
+                    detail=check.detail,
+                    suggestion=check.suggestion,
+                )
+            )
+        elif check.status == "warning":
+            issues.append(
+                DiagnosticIssue(
+                    key=f"preflight:{check.key}",
+                    severity="warning",
+                    summary=f"运行前提醒：{check.label}",
+                    detail=check.detail,
+                    suggestion=check.suggestion,
+                )
+            )
+
+    result = state.last_result
+    if result and not result.succeeded:
+        combined = "\n".join(part for part in (result.stderr, result.stdout) if part)
+        lowered = combined.lower()
+        if "ffmpeg" in lowered or "ffprobe" in lowered:
+            issues.insert(
+                0,
+                DiagnosticIssue(
+                    key="task:ffmpeg",
+                    severity="error",
+                    summary="任务失败与 ffmpeg / ffprobe 相关",
+                    detail="日志中检测到 ffmpeg 或 ffprobe 关键字。",
+                    suggestion="请先在运行前检查面板确认 ffmpeg 路径和 ffprobe 是否同目录存在。",
+                ),
+            )
+        if "模型目录" in combined or "model" in lowered:
+            issues.insert(
+                0,
+                DiagnosticIssue(
+                    key="task:model",
+                    severity="error",
+                    summary="任务失败与模型目录相关",
+                    detail="日志中检测到模型目录缺失或模型加载失败的线索。",
+                    suggestion="请检查主界面模型路径，或在 Settings 中启用/关闭 skip-model。",
+                ),
+            )
+        if "no module named" in lowered or "pyside6" in lowered:
+            issues.insert(
+                0,
+                DiagnosticIssue(
+                    key="task:python-dependency",
+                    severity="error",
+                    summary="任务日志提示存在 Python 依赖缺失",
+                    detail="日志中包含模块未找到信息。",
+                    suggestion="请确认当前 Python 环境已经安装所需依赖，例如 GUI 需要 `PySide6`。",
+                ),
+            )
+
+    deduped: list[DiagnosticIssue] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue.key in seen:
+            continue
+        seen.add(issue.key)
+        deduped.append(issue)
+    return deduped
 
 
 def resolve_brief_path(config: TaskConfig, state: AppState) -> str:

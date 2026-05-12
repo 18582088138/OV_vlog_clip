@@ -15,10 +15,13 @@ from ov_video_editing_skills.gui.services import (
     build_e2e_args,
     build_prepare_args,
     build_storyboard_args,
+    collect_diagnostic_issues,
+    collect_environment_checks,
     collect_workspace_artifacts,
     extract_final_video_path,
+    format_environment_checks,
 )
-from ov_video_editing_skills.gui.models import WorkspaceArtifact
+from ov_video_editing_skills.gui.models import TaskResult, WorkspaceArtifact
 from ov_video_editing_skills.gui.settings import load_default_task_config, load_task_config, save_task_config
 from ov_video_editing_skills.runtime import DEFAULT_MODEL_DIR
 
@@ -190,6 +193,44 @@ class GuiServicesTests(unittest.TestCase):
         self.assertIn("[Storyboard 结构预览]", preview)
         self.assertIn("分镜数量：1", preview)
         self.assertIn("开场", preview)
+
+    def test_collect_environment_checks_reports_missing_dependencies(self) -> None:
+        config = TaskConfig(
+            video_input=r"D:\missing\input.mp4",
+            model_dir=r"D:\missing\model",
+            ffmpeg_path=r"D:\missing\ffmpeg.exe",
+        )
+
+        checks = collect_environment_checks(config)
+        by_key = {check.key: check for check in checks}
+
+        self.assertEqual(by_key["video_input"].status, "error")
+        self.assertEqual(by_key["model_dir"].status, "error")
+        self.assertEqual(by_key["ffmpeg"].status, "error")
+
+    def test_format_environment_checks_contains_icons_and_suggestions(self) -> None:
+        checks = collect_environment_checks(TaskConfig(video_input="", skip_model=True, skip_ffmpeg=True))
+
+        content = format_environment_checks(checks)
+
+        self.assertIn("Python 环境", content)
+        self.assertIn("模型目录", content)
+        self.assertIn("ffmpeg / ffprobe", content)
+
+    def test_collect_diagnostic_issues_detects_failed_task_keywords(self) -> None:
+        state = AppState(
+            last_result=TaskResult(
+                task_name=TaskName.COMPOSE,
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="缺少 ffmpeg / ffprobe，请手动下载后放入 bin 目录",
+            )
+        )
+
+        issues = collect_diagnostic_issues(state, TaskConfig(video_input="", skip_model=True, skip_ffmpeg=False, ffmpeg_path=r"D:\missing\ffmpeg.exe"))
+
+        self.assertTrue(any(issue.key == "task:ffmpeg" for issue in issues))
 
     def test_launcher_reports_missing_pyside6(self) -> None:
         with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("No module named 'PySide6'")):
