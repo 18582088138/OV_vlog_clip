@@ -111,10 +111,13 @@ dist\ov-video-editing-e2e.exe --video-dir "D:\videos" --dry-run
 
 当前仓库已经加入 GUI 基础骨架，优先用于：
 
-- 配置视频输入 / 用户请求 / 输出目录
+- 通过 `default config` 自动加载默认参数
+- 主界面只保留 `输入数据`、`模型路径`、`设备` 三项主参数
+- 通过 `Settings` 对话框临时覆盖其他参数
 - 调用 `prepare` / `analyze` / `storyboard` / `compose` / `e2e`
 - 查看实时日志
-- 保存本地 GUI 配置
+- 预览当前所选视频
+- 在 `compose` / `e2e` 成功后弹窗播放生成的成片
 
 安装 GUI 依赖：
 
@@ -130,6 +133,12 @@ python -m pip install -r requirements-gui.txt
 python run.py gui
 ```
 
+如果你想指定一份自定义 `default config`，也可以传：
+
+```bat
+python run.py gui --settings "C:\path\to\custom_gui_config.json"
+```
+
 或者安装为包后启动：
 
 ```bat
@@ -139,7 +148,7 @@ ov-video-editing-gui
 
 说明：
 
-- 当前 GUI 处于 Phase 1 / Phase 2 过渡阶段，重点是骨架与任务调度打通。
+- 当前 GUI 处于 Phase 1 / Phase 2 过渡阶段，重点是默认配置、Settings 临时参数、视频预览与任务调度打通。
 - 若未安装 `PySide6`，GUI 启动时会给出明确提示，不会影响 CLI 主流程。
 
 ### 1. 激活现有 `conda ov_env_py312`
