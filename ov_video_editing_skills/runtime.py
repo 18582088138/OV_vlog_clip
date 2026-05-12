@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, TextIO
@@ -122,6 +123,22 @@ def safe_print(*values: object, sep: str = " ", end: str = "\n", file: TextIO | 
         fallback = text.encode(encoding, errors="backslashreplace").decode(encoding, errors="ignore")
         stream.write(fallback)
     stream.flush()
+
+
+def hidden_subprocess_kwargs() -> dict[str, object]:
+    if os.name != "nt":
+        return {}
+
+    kwargs: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_factory is not None:
+        startupinfo = startupinfo_factory()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
 
 
 def ensure_local_venv() -> Path:

@@ -15,7 +15,7 @@ from .creative_brief import (
     derive_artifact_base_name,
     load_creative_brief,
 )
-from .runtime import BIN_DIR, DEFAULT_MODEL_DIR, ensure_local_requirements, maybe_reexec_in_local_venv, safe_print
+from .runtime import BIN_DIR, DEFAULT_MODEL_DIR, ensure_local_requirements, hidden_subprocess_kwargs, maybe_reexec_in_local_venv, safe_print
 
 cv2 = None
 np = None
@@ -86,6 +86,7 @@ def get_video_duration(video_path: Path, ffprobe_path: str | None = None) -> flo
                 capture_output=True,
                 text=True,
                 timeout=30,
+                **hidden_subprocess_kwargs(),
             )
             if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())

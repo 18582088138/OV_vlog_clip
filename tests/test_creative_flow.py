@@ -17,6 +17,7 @@ from ov_video_editing_skills.compose_video import (
     normalize_subtitle_text,
     resolve_storyboard_input,
     resolve_subtitle_style,
+    run_cmd,
 )
 from ov_video_editing_skills.creative_brief import (
     build_analysis_file_name,
@@ -27,11 +28,29 @@ from ov_video_editing_skills.creative_brief import (
 )
 from ov_video_editing_skills.generate_storyboard import choose_bgm_file, generate_storyboard, resolve_analysis_input, resolve_storyboard_output_path, select_candidates
 from ov_video_editing_skills.prepare_workspace import prepare_workspace
-from ov_video_editing_skills.runtime import runtime_summary
-from ov_video_editing_skills.runtime import resolve_app_dir
+from ov_video_editing_skills.runtime import hidden_subprocess_kwargs, resolve_app_dir, runtime_summary
 
 
 class CreativeFlowTests(unittest.TestCase):
+    def test_hidden_subprocess_kwargs_match_platform(self) -> None:
+        kwargs = hidden_subprocess_kwargs()
+
+        if sys.platform.startswith("win"):
+            self.assertIn("creationflags", kwargs)
+            self.assertIn("startupinfo", kwargs)
+        else:
+            self.assertEqual(kwargs, {})
+
+    def test_run_cmd_uses_hidden_subprocess_kwargs(self) -> None:
+        completed = type("Completed", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+        with patch("ov_video_editing_skills.compose_video.hidden_subprocess_kwargs", return_value={"creationflags": 123}), patch(
+            "ov_video_editing_skills.compose_video.subprocess.run", return_value=completed
+        ) as run_mock:
+            run_cmd(["ffmpeg", "-version"], dry_run=False)
+
+        self.assertEqual(run_mock.call_args.kwargs["creationflags"], 123)
+
     def test_resolve_app_dir_prefers_project_resources_for_frozen_dist_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
