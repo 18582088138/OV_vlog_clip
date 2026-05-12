@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QListWidget,
+    QListWidgetItem,
     QSizePolicy,
     QStatusBar,
     QTextEdit,
@@ -33,8 +35,8 @@ from PySide6.QtWidgets import (
 )
 
 from ..analyze_video import VIDEO_EXTENSIONS
-from .models import AppState, TaskConfig, TaskName, TaskStatus
-from .services import GuiTaskService
+from .models import AppState, TaskConfig, TaskName, TaskStatus, WorkspaceArtifact
+from .services import GuiTaskService, build_artifact_preview, collect_workspace_artifacts
 from .settings import describe_default_config_source, load_task_config
 
 INTEL_STYLE_SHEET = """
@@ -430,6 +432,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(14)
         right_layout.addWidget(self._build_status_group())
         right_layout.addWidget(self._build_video_group(), stretch=5)
+        right_layout.addWidget(self._build_artifact_group(), stretch=4)
         right_layout.addWidget(self._build_log_group(), stretch=4)
 
         body_layout.addWidget(left_panel, 4)
@@ -571,6 +574,41 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.video_player_widget)
         return group
 
+    def _build_artifact_group(self) -> QGroupBox:
+        group = QGroupBox("工作区产物浏览", self)
+        layout = QVBoxLayout(group)
+
+        summary = QLabel("浏览工作区中间产物，并对 storyboard 提供结构化摘要预览。", self)
+        summary.setProperty("role", "subtitle")
+        summary.setWordWrap(True)
+
+        controls = QHBoxLayout()
+        self.refresh_artifacts_button = QPushButton("刷新产物", self)
+        self.open_artifact_button = QPushButton("打开选中文件", self)
+        self.open_artifact_button.setProperty("variant", "secondary")
+        self.open_artifact_button.style().unpolish(self.open_artifact_button)
+        self.open_artifact_button.style().polish(self.open_artifact_button)
+        self.refresh_artifacts_button.clicked.connect(self._refresh_artifact_browser)
+        self.open_artifact_button.clicked.connect(self._open_selected_artifact)
+        controls.addWidget(self.refresh_artifacts_button)
+        controls.addWidget(self.open_artifact_button)
+        controls.addStretch(1)
+
+        content = QHBoxLayout()
+        self.artifact_list = QListWidget(self)
+        self.artifact_list.setMinimumWidth(220)
+        self.artifact_list.currentItemChanged.connect(self._handle_artifact_selection_changed)
+        self.artifact_preview = QPlainTextEdit(self)
+        self.artifact_preview.setReadOnly(True)
+        self.artifact_preview.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        content.addWidget(self.artifact_list, 3)
+        content.addWidget(self.artifact_preview, 5)
+
+        layout.addWidget(summary)
+        layout.addLayout(controls)
+        layout.addLayout(content)
+        return group
+
     def _with_browse(self, edit: QLineEdit, handler) -> QWidget:
         wrapper = QWidget(self)
         layout = QHBoxLayout(wrapper)
@@ -599,6 +637,7 @@ class MainWindow(QMainWindow):
         self.device_combo.setCurrentIndex(index if index >= 0 else 0)
         self._refresh_settings_summary()
         self._update_selected_video_preview()
+        self._refresh_artifact_browser()
 
     def _append_log(self, text: str) -> None:
         normalized = str(text).rstrip("\n")
@@ -628,6 +667,8 @@ class MainWindow(QMainWindow):
     def _set_buttons_enabled(self, enabled: bool) -> None:
         for button in [self.prepare_button, self.analyze_button, self.storyboard_button, self.compose_button, self.e2e_button, self.settings_button]:
             button.setEnabled(enabled)
+        self.refresh_artifacts_button.setEnabled(enabled)
+        self.open_artifact_button.setEnabled(enabled)
 
     def _start_task(self, task_name: TaskName) -> None:
         config = self._collect_config()
@@ -669,6 +710,7 @@ class MainWindow(QMainWindow):
         self._refresh_settings_summary()
         if self.state.workspace_dir:
             self.workspace_label.setText(f"工作区：{self.state.workspace_dir}")
+        self._refresh_artifact_browser()
 
     def _reload_default_config(self) -> None:
         self.default_config = load_task_config(self.default_config_path)
@@ -683,6 +725,47 @@ class MainWindow(QMainWindow):
             self.session_config = dialog.build_config()
             self._refresh_settings_summary()
             self._append_log("[gui] 已应用 Settings 临时参数（仅当前会话生效）")
+
+    def _refresh_artifact_browser(self) -> None:
+        artifacts = collect_workspace_artifacts(self.state, self._collect_config())
+        self.artifact_list.clear()
+        self.artifact_preview.clear()
+
+        if not artifacts:
+            self.artifact_preview.setPlainText("当前没有可浏览的工作区产物。请先执行 Prepare / Analyze / Storyboard / E2E。")
+            return
+
+        for artifact in artifacts:
+            status = "已生成" if artifact.exists else "未生成"
+            item = QListWidgetItem(f"{artifact.label} · {status}")
+            item.setData(Qt.UserRole, artifact)
+            self.artifact_list.addItem(item)
+
+        self.artifact_list.setCurrentRow(0)
+
+    def _handle_artifact_selection_changed(self, current: QListWidgetItem | None, previous: QListWidgetItem | None = None) -> None:
+        del previous
+        if current is None:
+            self.artifact_preview.clear()
+            return
+        artifact = current.data(Qt.UserRole)
+        if not isinstance(artifact, WorkspaceArtifact):
+            self.artifact_preview.clear()
+            return
+        self.artifact_preview.setPlainText(build_artifact_preview(artifact))
+
+    def _open_selected_artifact(self) -> None:
+        current = self.artifact_list.currentItem()
+        if current is None:
+            QMessageBox.information(self, "提示", "请先选择一个工作区产物。")
+            return
+        artifact = current.data(Qt.UserRole)
+        if not isinstance(artifact, WorkspaceArtifact) or not artifact.exists:
+            QMessageBox.information(self, "提示", "当前产物尚未生成，无法打开。")
+            return
+        path = Path(artifact.path)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            QMessageBox.warning(self, "提示", f"无法打开文件：{path}")
 
     def _open_workspace(self) -> None:
         if not self.state.workspace_dir:
