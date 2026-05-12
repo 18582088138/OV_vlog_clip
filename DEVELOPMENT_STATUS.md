@@ -49,6 +49,8 @@
 - 将 `setup-resources` / `setup-model` 改成仅检查、不自动下载。
 - 处理 Windows 控制台中文输出编码兼容问题。
 - 建立独立 Git 仓库并补齐提交辅助脚本。
+- 为 E2E pipeline 补齐 `wheel` 打包入口，并提供 Windows `exe` 构建配置。
+- 补充 `build_e2e_exe.cmd`，用于 Windows 下一键构建 E2E 可执行文件。
 
 ### 进行中 / 下一步建议
 
@@ -57,6 +59,7 @@
 3. 增强 `storyboard` 对 `seg_id` / 来源片段的引用约束。
 4. 为 `compose` 增加更清晰的阶段输出说明与异常提示。
 5. 继续完善测试覆盖，特别是 `analyze` 和 `compose` 的边界场景。
+6. 在目标机器继续验证 `wheel` / `exe` 对外部资源路径的兼容性。
 
 ---
 
@@ -93,9 +96,21 @@
 已完成：
 
 - 修复 `python run.py prepare ...` 这类子命令会被二次解析的问题。
-- 目前 `prepare`、`analyze`、`storyboard`、`compose` 均由 `run.py` 统一分发。
+- 目前 `prepare`、`analyze`、`storyboard`、`compose`、`e2e` 均由 `run.py` 统一分发。
 
-### 4.4 资源与环境策略
+### 4.4 打包与移植
+
+已完成：
+
+- 新增 `pyproject.toml`，支持构建 `wheel`。
+- 新增可安装命令入口：
+  - `ov-video-editing-skills`
+  - `ov-video-editing-e2e`
+- 新增 `ov_video_editing_e2e.spec`，支持使用 `PyInstaller` 构建 Windows `exe`。
+- 新增 `build_e2e_exe.cmd`，封装 `PyInstaller` 调用，减少手工输入。
+- 将 `scripts/test_e2e.py` 的核心逻辑收敛到包内模块，便于安装后直接调用。
+
+### 4.5 资源与环境策略
 
 已完成：
 
@@ -108,7 +123,7 @@
 - `setup_resources.py` 仅报告缺失路径和手动下载地址。
 - `setup_ov_model.py` 仅报告模型缺失情况和手动放置目录。
 
-### 4.5 分镜与合成
+### 4.6 分镜与合成
 
 已完成：
 
@@ -119,7 +134,7 @@
   - `clips[].narrative_role`
 - `compose` 可继续使用生成的 `storyboard.json` 合成视频。
 
-### 4.6 已补单元测试
+### 4.7 已补单元测试
 
 当前已在 `tests/test_creative_flow.py` 覆盖：
 
@@ -129,6 +144,8 @@
 - `prepare` 忽略已有 `output_vlm.json`
 - `prepare` 支持单文件输入
 - CLI 子命令参数转发
+- `e2e` 子命令入口暴露
+- `pyproject.toml` 中可安装 console script 声明
 - `runtime_summary()` 使用当前 Python / conda 信息
 - `bootstrap_environment()` 只做检查，不做自动下载 / 安装
 
@@ -140,7 +157,12 @@
 
 - `run.py`
 - `README.md`
+- `pyproject.toml`
+- `requirements-build.txt`
+- `ov_video_editing_e2e.spec`
+- `build_e2e_exe.cmd`
 - `ov_video_editing_skills/cli.py`
+- `ov_video_editing_skills/e2e.py`
 - `ov_video_editing_skills/prepare_workspace.py`
 - `ov_video_editing_skills/creative_brief.py`
 - `ov_video_editing_skills/analyze_video.py`
@@ -150,6 +172,7 @@
 - `ov_video_editing_skills/setup_resources.py`
 - `ov_video_editing_skills/setup_ov_model.py`
 - `tests/test_creative_flow.py`
+- `tests/test_command_scripts.py`
 
 ---
 

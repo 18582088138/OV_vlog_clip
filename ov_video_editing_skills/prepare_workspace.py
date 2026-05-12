@@ -118,6 +118,7 @@ def prepare_workspace(
     force_requirements: bool = False,
     force_ffmpeg: bool = False,
     force_model: bool = False,
+    skip_ffmpeg: bool = False,
     skip_model: bool = False,
     ignore_existing_analysis: bool = False,
 ) -> tuple[Path, dict[str, str], dict[str, object]]:
@@ -144,6 +145,7 @@ def prepare_workspace(
         force_requirements=force_requirements,
         force_ffmpeg=force_ffmpeg,
         force_model=force_model,
+        skip_ffmpeg=skip_ffmpeg,
         skip_model=skip_model,
     )
 
@@ -166,6 +168,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="验证视频目录、创建工作区并完成运行时准备")
     parser.add_argument("--video-dir", required=True, help="视频文件所在目录")
     parser.add_argument("--user-request", default=None, help="用户原始请求")
+    parser.add_argument("--skip-ffmpeg", action="store_true", help="跳过 ffmpeg / ffprobe 检查")
     parser.add_argument("--skip-model", action="store_true", help="跳过模型准备")
     parser.add_argument("--force-requirements", action="store_true", help="强制重新安装 requirements.txt")
     parser.add_argument("--force-ffmpeg", action="store_true", help="强制重新下载 ffmpeg / ffprobe")
@@ -193,6 +196,7 @@ def main() -> int:
             force_requirements=args.force_requirements,
             force_ffmpeg=args.force_ffmpeg,
             force_model=args.force_model,
+            skip_ffmpeg=args.skip_ffmpeg,
             skip_model=args.skip_model,
             ignore_existing_analysis=args.ignore_existing_analysis,
         )

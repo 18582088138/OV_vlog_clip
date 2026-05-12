@@ -17,6 +17,92 @@
 - `ov_video_editing_skills/`：核心 Python 包
 - `resource/bgm/`：本地 BGM 目录
 - `requirements.txt`：Python 依赖
+- `pyproject.toml`：`wheel` 打包配置与可安装命令入口
+- `ov_video_editing_e2e.spec`：Windows `exe` 打包配置（PyInstaller）
+- `build_e2e_exe.cmd`：Windows 下一键构建 `ov-video-editing-e2e.exe`
+
+## 可移植打包
+
+当前仓库已把 E2E pipeline 收敛为包内入口，可按两种方式分发：
+
+1. 跨平台优先：构建并分发 `wheel`
+2. Windows 单文件分发：构建 `exe`
+
+这两种封装都复用当前项目代码，不会额外创建新的 `.venv`，仍建议在你已有的 `conda` 环境中构建。
+
+### 1. 构建 `wheel`
+
+先激活你当前使用的 `conda` 环境，再安装构建依赖：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+conda activate ov_env_py312
+python -m pip install -r requirements-build.txt
+python -m build --wheel
+```
+
+成功后会在 `dist\` 下生成类似：
+
+- `ov_video_editing_skills-0.3.0-py3-none-any.whl`
+
+在其他平台安装后，可直接使用两个入口命令：
+
+- `ov-video-editing-skills`
+- `ov-video-editing-e2e`
+
+例如：
+
+```bat
+pip install dist\ov_video_editing_skills-0.3.0-py3-none-any.whl
+ov-video-editing-e2e --video-dir "D:\videos" --dry-run
+```
+
+### 2. 构建 Windows `exe`
+
+项目根目录已提供 `PyInstaller` 规格文件：`ov_video_editing_e2e.spec`
+
+也提供了一键脚本：`build_e2e_exe.cmd`
+
+推荐直接使用：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+conda activate ov_env_py312
+build_e2e_exe.cmd
+```
+
+如需透传额外参数给 `PyInstaller`，可直接追加：
+
+```bat
+build_e2e_exe.cmd --noconfirm
+```
+
+等价的底层命令仍然是：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+conda activate ov_env_py312
+python -m pip install -r requirements-build.txt
+pyinstaller ov_video_editing_e2e.spec --clean
+```
+
+成功后，单文件可执行程序位于：
+
+- `dist\ov-video-editing-e2e.exe`
+
+使用示例：
+
+```bat
+dist\ov-video-editing-e2e.exe --video-dir "D:\videos" --dry-run
+```
+
+说明：
+
+- `wheel` 更适合 Linux / macOS / Windows 间移植
+- `exe` 仅适合 Windows 分发
+- 运行时仍需用户手动准备模型、`ffmpeg` / `ffprobe` 和相关资源
+- `compose` 输出效果仍建议在目标机器上实际验证
+- `build_e2e_exe.cmd` 会优先使用当前激活 `conda` 环境中的 `pyinstaller.exe`
 
 ## 快速开始
 
@@ -106,6 +192,13 @@ python run.py analyze --video-dir "D:\videos\2022yunqidahui.mp4" --brief "D:\vid
 - `scripts/test_compose.py`
 - `scripts/test_e2e.py`
 
+此外，安装 `wheel` 后也可以直接调用包内入口，不依赖仓库下的 `scripts\*.cmd`：
+
+```bat
+ov-video-editing-skills e2e --video-dir "D:\videos" --dry-run
+ov-video-editing-e2e --video-dir "D:\videos" --dry-run
+```
+
 直接使用默认测试素材：
 
 ```bat
@@ -184,6 +277,9 @@ python run.py compose --storyboard "D:\videos\editing_20260511_120000"
 - `python run.py prepare --video-dir ... --ignore-existing-analysis`
 - `python run.py analyze --video-dir ...`
 - `python run.py analyze --video-dir ... --output ...`
+- `python run.py e2e --video-dir ...`
+- `ov-video-editing-skills e2e --video-dir ...`
+- `ov-video-editing-e2e --video-dir ...`
 - `scripts\test_prepare.cmd ...`
 - `scripts\test_analyze.cmd ...`
 - `scripts\test_e2e.cmd ...`
@@ -221,3 +317,4 @@ python run.py compose --storyboard "D:\videos\editing_20260511_120000"
 - 默认按现有 `conda ov_env_py312` 提供命令说明；模型和外部资源需由用户手动下载并放置
 - `setup-resources` / `setup-model` 当前为检查脚本：只输出缺失路径与手动放置方法，不会自动下载
 - 工作区目录仍保留时间戳便于区分批次，但 `brief` / `analysis` 文件名只与视频名或目录名相关，方便后续读取
+- `wheel` / `exe` 仅封装命令入口与 Python 逻辑，不内置模型、视频素材和 `ffmpeg`

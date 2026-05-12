@@ -11,10 +11,11 @@ DEFAULT_MODEL_NAME = "Qwen2.5-VL-7B-Instruct-int4"
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PACKAGE_DIR.parent
-RESOURCE_DIR = PROJECT_DIR / "resource"
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else PROJECT_DIR
+RESOURCE_DIR = APP_DIR / "resource"
 BGM_DIR = RESOURCE_DIR / "bgm"
-BIN_DIR = PROJECT_DIR / "bin"
-MODELS_DIR = PROJECT_DIR / "models"
+BIN_DIR = APP_DIR / "bin"
+MODELS_DIR = APP_DIR / "models"
 DEFAULT_MODEL_DIR = MODELS_DIR / DEFAULT_MODEL_NAME
 REQUIREMENTS_FILE = PROJECT_DIR / "requirements.txt"
 
@@ -70,6 +71,9 @@ def ensure_local_venv() -> Path:
 def ensure_local_requirements(force: bool = False) -> Path:
     del force
     assert_host_python_supported()
+    if getattr(sys, "frozen", False):
+        safe_print(f"[python] 使用打包后的可执行文件：{current_python_path()}")
+        return current_python_path()
     if not REQUIREMENTS_FILE.exists():
         raise FileNotFoundError(f"requirements.txt 不存在：{REQUIREMENTS_FILE}")
     safe_print(f"[python] 使用当前解释器：{current_python_path()}")
@@ -95,6 +99,7 @@ def runtime_summary() -> dict[str, str]:
     ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
     return {
         "project_dir": str(PROJECT_DIR),
+        "app_dir": str(APP_DIR),
         "python_executable": str(current_python_path()),
         "conda_env_name": current_conda_env_name(),
         "requirements_file": str(REQUIREMENTS_FILE),

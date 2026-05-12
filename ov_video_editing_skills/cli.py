@@ -7,6 +7,7 @@ from . import __version__
 from .analyze_video import main as analyze_main
 from .bootstrap import main as bootstrap_main
 from .compose_video import main as compose_main
+from .e2e import main as e2e_main
 from .generate_storyboard import main as storyboard_main
 from .prepare_workspace import main as prepare_main
 from .setup_ov_model import main as model_main
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("analyze", help="分析视频并输出 output_vlm.json")
     subparsers.add_parser("storyboard", help="从 output_vlm.json 生成 storyboard.json")
     subparsers.add_parser("compose", help="根据 storyboard.json 合成最终视频")
+    subparsers.add_parser("e2e", help="串联执行 prepare/analyze/storyboard/compose")
     return parser
 
 
@@ -58,6 +60,8 @@ def main() -> int:
         return run_subcommand(storyboard_main, remaining)
     if args.command == "compose":
         return run_subcommand(compose_main, remaining)
+    if args.command == "e2e":
+        return run_subcommand(e2e_main, remaining)
 
     parser.print_help()
     return 0

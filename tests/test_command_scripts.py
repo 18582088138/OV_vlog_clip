@@ -5,6 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ov_video_editing_skills import cli as package_cli
+from ov_video_editing_skills import e2e as package_e2e
+
 
 def load_module(module_name: str, file_path: Path):
     spec = importlib.util.spec_from_file_location(module_name, file_path)
@@ -138,6 +141,51 @@ class CommandScriptTests(unittest.TestCase):
         self.assertTrue(commands["paths"]["brief"].endswith("videos_brief.json"))
         self.assertTrue(commands["paths"]["analysis"].endswith("videos_output_vlm.json"))
         self.assertTrue(commands["paths"]["storyboard"].endswith("videos_storyboard.json"))
+
+    def test_e2e_can_forward_skip_checks_for_portable_exe(self) -> None:
+        commands = self.e2e_script.build_e2e_commands(
+            repo_root=self.repo_root,
+            python_executable="python",
+            video_dir=self.repo_root / "videos",
+            skip_ffmpeg=True,
+            skip_model=True,
+        )
+
+        self.assertIn("--skip-ffmpeg", commands["prepare"])
+        self.assertIn("--skip-model", commands["prepare"])
+
+    def test_e2e_can_forward_external_model_bgm_and_ffmpeg_paths(self) -> None:
+        commands = self.e2e_script.build_e2e_commands(
+            repo_root=self.repo_root,
+            python_executable="python",
+            video_dir=self.repo_root / "videos" / "2022yunqidahui.mp4",
+            analyze_extra_args=["--model-dir", r"D:\models\Qwen", "--device", "CPU"],
+            storyboard_extra_args=["--bgm-file", r"D:\bgm\theme.mp3"],
+            compose_extra_args=["--ffmpeg", r"D:\ffmpeg\bin\ffmpeg.exe"],
+        )
+
+        self.assertEqual(commands["analyze"][-4:], ["--model-dir", r"D:\models\Qwen", "--device", "CPU"])
+        self.assertEqual(commands["storyboard"][-2:], ["--bgm-file", r"D:\bgm\theme.mp3"])
+        self.assertEqual(commands["compose"][-2:], ["--ffmpeg", r"D:\ffmpeg\bin\ffmpeg.exe"])
+
+    def test_main_cli_exposes_e2e_subcommand(self) -> None:
+        parser = package_cli.build_parser()
+        args = parser.parse_args(["e2e"])
+
+        self.assertEqual(args.command, "e2e")
+
+    def test_package_e2e_default_video_input_prefers_repo_fixture(self) -> None:
+        default_path = package_e2e.default_video_input(self.repo_root)
+
+        self.assertTrue(default_path.exists())
+        self.assertIn(default_path.name, {"2022yunqidahui.mp4", "videos"})
+
+    def test_pyproject_declares_portable_console_scripts(self) -> None:
+        pyproject_path = self.repo_root / "pyproject.toml"
+        content = pyproject_path.read_text(encoding="utf-8")
+
+        self.assertIn('ov-video-editing-skills = "ov_video_editing_skills.cli:main"', content)
+        self.assertIn('ov-video-editing-e2e = "ov_video_editing_skills.e2e:main"', content)
 
     def test_e2e_extract_workspace_from_prepare_output_supports_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
