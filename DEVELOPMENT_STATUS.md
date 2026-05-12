@@ -292,6 +292,9 @@
   - 浏览 `*_storyboard.json`
   - 浏览 `runtime_env.json`
   - 对 storyboard 提供结构化摘要预览，便于检查分镜数量、字幕、转场与 BGM 结果
+- 已补第二批 Phase 3 能力：
+  - 运行前检查面板，可集中查看 Python、输入数据、模型目录、`ffmpeg` / `ffprobe` 与 BGM 状态
+  - 任务失败后基于日志关键字提示缺失依赖和高风险问题，便于快速排障
 
 ---
 

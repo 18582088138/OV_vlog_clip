@@ -120,6 +120,8 @@ dist\ov-video-editing-e2e.exe --video-dir "D:\videos" --dry-run
 - 在 `compose` / `e2e` 成功后弹窗播放生成的成片
 - 浏览工作区中的 `user_input.txt`、`brief`、`analysis`、`storyboard`、`runtime_env.json`
 - 对 `storyboard.json` 提供结构化摘要预览，便于快速检查分镜、字幕、转场和 BGM 结果
+- 集中展示运行前检查结果，快速查看 Python / 模型 / `ffmpeg` / BGM / 输入数据状态
+- 在任务失败后提示缺失依赖和高风险问题，便于快速排障
 
 安装 GUI 依赖：
 
@@ -150,7 +152,7 @@ ov-video-editing-gui
 
 说明：
 
-- 当前 GUI 已完成 Phase 2，并开始进入 Phase 3：支持默认配置、Settings 临时参数、视频预览、工作区产物浏览与 storyboard 摘要预览。
+- 当前 GUI 已完成 Phase 2，并继续推进 Phase 3：支持默认配置、Settings 临时参数、视频预览、工作区产物浏览、storyboard 摘要预览，以及运行前检查 / 缺失依赖提示。
 - 若未安装 `PySide6`，GUI 启动时会给出明确提示，不会影响 CLI 主流程。
 
 ### 1. 激活现有 `conda ov_env_py312`
