@@ -28,9 +28,59 @@ from ov_video_editing_skills.creative_brief import (
 from ov_video_editing_skills.generate_storyboard import choose_bgm_file, generate_storyboard, resolve_analysis_input, resolve_storyboard_output_path, select_candidates
 from ov_video_editing_skills.prepare_workspace import prepare_workspace
 from ov_video_editing_skills.runtime import runtime_summary
+from ov_video_editing_skills.runtime import resolve_app_dir
 
 
 class CreativeFlowTests(unittest.TestCase):
+    def test_resolve_app_dir_prefers_project_resources_for_frozen_dist_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "ov-video-editing-skills"
+            package_dir = project / "ov_video_editing_skills"
+            package_dir.mkdir(parents=True)
+            (project / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+            (project / "run.py").write_text("print('demo')\n", encoding="utf-8")
+            (project / "bin").mkdir()
+            (project / "resource").mkdir()
+            (project / "models").mkdir()
+
+            exe_path = project / "dist" / "ov-video-editing-gui" / "ov-video-editing-gui.exe"
+            exe_path.parent.mkdir(parents=True)
+            exe_path.write_text("", encoding="utf-8")
+
+            resolved = resolve_app_dir(
+                executable_path=exe_path,
+                frozen=True,
+                project_dir=project,
+                package_dir=package_dir,
+            )
+
+            self.assertEqual(resolved, project)
+
+    def test_resolve_app_dir_prefers_exe_dir_when_portable_resources_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "ov-video-editing-skills"
+            package_dir = project / "ov_video_editing_skills"
+            package_dir.mkdir(parents=True)
+
+            exe_path = project / "dist" / "ov-video-editing-gui" / "ov-video-editing-gui.exe"
+            exe_dir = exe_path.parent
+            exe_dir.mkdir(parents=True)
+            exe_path.write_text("", encoding="utf-8")
+            (exe_dir / "bin").mkdir()
+            (exe_dir / "resource").mkdir()
+            (exe_dir / "models").mkdir()
+
+            resolved = resolve_app_dir(
+                executable_path=exe_path,
+                frozen=True,
+                project_dir=project,
+                package_dir=package_dir,
+            )
+
+            self.assertEqual(resolved, exe_dir)
+
     def test_create_brief_extracts_request_preferences(self) -> None:
         brief = create_creative_brief(
             "做一个45秒的旅行vlog，主题：海边落日，氛围：轻松治愈，节奏：舒缓，重点保留海浪、晚霞、人物背影"

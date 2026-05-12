@@ -4,11 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+import io
 
 from ov_video_editing_skills.gui import launcher
 from ov_video_editing_skills.gui.models import AppState, TaskConfig, TaskName
 from ov_video_editing_skills.gui.services import (
     GuiTaskService,
+    _CallbackWriter,
     build_artifact_preview,
     build_analyze_args,
     build_compose_args,
@@ -23,7 +25,7 @@ from ov_video_editing_skills.gui.services import (
 )
 from ov_video_editing_skills.gui.models import TaskResult, WorkspaceArtifact
 from ov_video_editing_skills.gui.settings import load_default_task_config, load_task_config, save_task_config
-from ov_video_editing_skills.runtime import DEFAULT_MODEL_DIR
+from ov_video_editing_skills.runtime import DEFAULT_MODEL_DIR, safe_print
 
 
 class GuiServicesTests(unittest.TestCase):
@@ -208,6 +210,18 @@ class GuiServicesTests(unittest.TestCase):
         self.assertEqual(by_key["model_dir"].status, "error")
         self.assertEqual(by_key["ffmpeg"].status, "error")
 
+    def test_collect_environment_checks_uses_packaged_runtime_in_frozen_mode(self) -> None:
+        config = TaskConfig(video_input="", skip_model=True, skip_ffmpeg=True)
+
+        with mock.patch("ov_video_editing_skills.gui.services.running_as_packaged_app", return_value=True):
+            checks = collect_environment_checks(config)
+
+        by_key = {check.key: check for check in checks}
+        self.assertIn("deployment_mode", by_key)
+        self.assertEqual(by_key["deployment_mode"].status, "ready")
+        self.assertIn("独立打包 EXE", by_key["deployment_mode"].detail)
+        self.assertNotIn("conda_env", by_key)
+
     def test_format_environment_checks_contains_icons_and_suggestions(self) -> None:
         checks = collect_environment_checks(TaskConfig(video_input="", skip_model=True, skip_ffmpeg=True))
 
@@ -231,6 +245,23 @@ class GuiServicesTests(unittest.TestCase):
         issues = collect_diagnostic_issues(state, TaskConfig(video_input="", skip_model=True, skip_ffmpeg=False, ffmpeg_path=r"D:\missing\ffmpeg.exe"))
 
         self.assertTrue(any(issue.key == "task:ffmpeg" for issue in issues))
+
+    def test_callback_writer_handles_missing_underlying_stream(self) -> None:
+        lines: list[str] = []
+        writer = _CallbackWriter(lines.append, None)
+
+        writer.write("hello\nworld")
+        writer.flush_pending()
+
+        self.assertEqual(lines, ["hello", "world"])
+        self.assertEqual(writer.getvalue(), "hello\nworld")
+
+    def test_safe_print_handles_missing_stdout(self) -> None:
+        fake_stream = io.StringIO()
+        with mock.patch("sys.stdout", None), mock.patch("sys.__stdout__", fake_stream):
+            safe_print("hello gui exe")
+
+        self.assertIn("hello gui exe", fake_stream.getvalue())
 
     def test_launcher_reports_missing_pyside6(self) -> None:
         with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("No module named 'PySide6'")):

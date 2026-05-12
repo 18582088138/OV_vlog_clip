@@ -13,7 +13,7 @@ from ..compose_video import main as compose_main
 from ..e2e import DEFAULT_REQUEST, derive_artifact_paths, extract_workspace_from_prepare_output, load_runtime_paths, main as e2e_main
 from ..generate_storyboard import main as storyboard_main
 from ..prepare_workspace import main as prepare_main
-from ..runtime import BGM_DIR, current_python_path, current_conda_env_name, min_python_display, python_version_supported, safe_print
+from ..runtime import BGM_DIR, current_python_path, current_conda_env_name, min_python_display, python_version_supported, running_as_packaged_app, safe_print
 from .models import AppState, DiagnosticIssue, EnvironmentCheck, TaskConfig, TaskName, TaskResult, TaskStatus, WorkspaceArtifact
 
 LogCallback = Callable[[str], None]
@@ -29,8 +29,9 @@ class _CallbackWriter(io.StringIO):
         self._buffer = ""
 
     def write(self, text: str) -> int:
-        self.stream.write(text)
-        self.stream.flush()
+        if self.stream is not None:
+            self.stream.write(text)
+            self.stream.flush()
         self._buffer += text
         if self.callback:
             while "\n" in self._buffer:
@@ -295,17 +296,29 @@ def collect_environment_checks(config: TaskConfig) -> list[EnvironmentCheck]:
         )
     )
 
-    conda_env = current_conda_env_name().strip()
-    checks.append(
-        EnvironmentCheck(
-            key="conda_env",
-            label="Conda 环境",
-            status="ready" if conda_env else "warning",
-            detail=f"当前环境：{conda_env or '未检测到 CONDA_DEFAULT_ENV'}",
-            suggestion="如你依赖 conda 环境，请先执行 conda activate 目标环境。" if not conda_env else "",
-            blocking=False,
+    if running_as_packaged_app():
+        checks.append(
+            EnvironmentCheck(
+                key="deployment_mode",
+                label="运行环境",
+                status="ready",
+                detail="当前为独立打包 EXE，Python 依赖已随程序一起分发，不依赖 conda 环境。",
+                suggestion="",
+                blocking=False,
+            )
         )
-    )
+    else:
+        conda_env = current_conda_env_name().strip()
+        checks.append(
+            EnvironmentCheck(
+                key="conda_env",
+                label="Conda 环境",
+                status="ready" if conda_env else "warning",
+                detail=f"当前环境：{conda_env or '未检测到 CONDA_DEFAULT_ENV'}",
+                suggestion="如你依赖 conda 环境，请先执行 conda activate 目标环境。" if not conda_env else "",
+                blocking=False,
+            )
+        )
 
     input_value = str(config.video_input or "").strip()
     input_exists = bool(input_value) and Path(input_value).exists()
