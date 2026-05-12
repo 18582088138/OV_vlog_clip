@@ -13,10 +13,11 @@ from ..e2e import DEFAULT_REQUEST, derive_artifact_paths, extract_workspace_from
 from ..generate_storyboard import main as storyboard_main
 from ..prepare_workspace import main as prepare_main
 from ..runtime import safe_print
-from .models import AppState, TaskConfig, TaskName, TaskResult, TaskStatus
+from .models import AppState, TaskConfig, TaskName, TaskResult, TaskStatus, WorkspaceArtifact
 
 LogCallback = Callable[[str], None]
 FINAL_OUTPUT_PREFIX = "Done. Final output: "
+TEXT_PREVIEW_LIMIT = 12000
 
 
 class _CallbackWriter(io.StringIO):
@@ -155,6 +156,122 @@ def refresh_artifact_paths(state: AppState, config: TaskConfig) -> dict[str, str
     artifact_paths = derive_artifact_paths(config.video_input, workspace_dir)
     state.artifact_paths = artifact_paths
     return artifact_paths
+
+
+def _find_first_existing(workspace_dir: Path, *patterns: str) -> Path | None:
+    for pattern in patterns:
+        for candidate in sorted(workspace_dir.glob(pattern)):
+            if candidate.exists():
+                return candidate
+    return None
+
+
+def collect_workspace_artifacts(state: AppState, config: TaskConfig) -> list[WorkspaceArtifact]:
+    workspace_path = state.workspace_path()
+    if workspace_path is None or not workspace_path.exists():
+        return []
+
+    artifact_paths = state.artifact_paths or refresh_artifact_paths(state, config)
+    result_artifacts = state.last_result.artifacts if state.last_result else {}
+
+    mapped_paths = {
+        "user_input": workspace_path / "user_input.txt",
+        "brief": Path(artifact_paths.get("brief", "")) if artifact_paths.get("brief") else _find_first_existing(workspace_path, "*_brief.json", "creative_brief.json"),
+        "analysis": Path(artifact_paths.get("analysis", "")) if artifact_paths.get("analysis") else _find_first_existing(workspace_path, "*_output_vlm.json", "output_vlm.json"),
+        "storyboard": Path(artifact_paths.get("storyboard", "")) if artifact_paths.get("storyboard") else _find_first_existing(workspace_path, "*_storyboard.json", "storyboard.json"),
+        "runtime": workspace_path / "runtime_env.json",
+        "final_video": Path(result_artifacts.get("final_video", "")) if result_artifacts.get("final_video") else None,
+    }
+    labels = {
+        "user_input": ("用户请求", "`prepare` 阶段生成的原始请求文本。"),
+        "brief": ("Creative Brief", "自动抽取的时长、主题、节奏和保留要素。"),
+        "analysis": ("VLM 分析结果", "视频分析阶段输出的结构化结果。"),
+        "storyboard": ("Storyboard", "分镜与字幕、转场、BGM 选择结果。"),
+        "runtime": ("运行时清单", "Python、模型、ffmpeg 等运行环境检查信息。"),
+        "final_video": ("最终成片", "合成完成后生成的视频文件。"),
+    }
+
+    artifacts: list[WorkspaceArtifact] = []
+    for key in ["user_input", "brief", "analysis", "storyboard", "runtime", "final_video"]:
+        candidate = mapped_paths.get(key)
+        path_str = str(candidate.resolve()) if isinstance(candidate, Path) and candidate.exists() else (str(candidate) if isinstance(candidate, Path) else "")
+        artifacts.append(
+            WorkspaceArtifact(
+                key=key,
+                label=labels[key][0],
+                path=path_str,
+                exists=bool(path_str) and Path(path_str).exists(),
+                description=labels[key][1],
+            )
+        )
+    return artifacts
+
+
+def _truncate_preview(text: str, limit: int = TEXT_PREVIEW_LIMIT) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n\n...[内容已截断]"
+
+
+def _build_storyboard_summary(payload: dict) -> str:
+    clips = payload.get("clips") if isinstance(payload.get("clips"), list) else []
+    outline = payload.get("story_outline") if isinstance(payload.get("story_outline"), dict) else {}
+    lines = [
+        "[Storyboard 结构预览]",
+        f"分镜数量：{len(clips)}",
+        f"主题：{outline.get('theme') or payload.get('theme') or '未提供'}",
+        f"情绪弧线：{outline.get('emotional_arc') or payload.get('mood') or '未提供'}",
+        f"必保留元素：{', '.join(outline.get('must_capture', [])) if isinstance(outline.get('must_capture'), list) else '未提供'}",
+        "",
+        "[分镜摘要]",
+    ]
+
+    for index, clip in enumerate(clips[:8], start=1):
+        if not isinstance(clip, dict):
+            continue
+        start = clip.get("start") or clip.get("start_time") or "?"
+        end = clip.get("end") or clip.get("end_time") or "?"
+        subtitle = clip.get("subtitle") or clip.get("caption") or clip.get("text") or ""
+        role = clip.get("narrative_role") or clip.get("role") or "未标注"
+        transition = clip.get("transition") or "无"
+        bgm = clip.get("bgm") or clip.get("bgm_choice") or "未指定"
+        lines.extend(
+            [
+                f"{index}. [{start} - {end}] {role}",
+                f"   字幕：{subtitle or '无'}",
+                f"   转场：{transition} | BGM：{bgm}",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
+def build_artifact_preview(artifact: WorkspaceArtifact) -> str:
+    if not artifact.exists:
+        return f"{artifact.label} 尚未生成。\n\n{artifact.description}"
+
+    path = Path(artifact.path)
+    if artifact.key == "final_video":
+        return f"最终成片已生成：\n{path}\n\n可通过右侧视频区或独立弹窗播放。"
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return f"{artifact.label} 为二进制或非 UTF-8 文件：\n{path}"
+
+    if path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return _truncate_preview(text)
+
+        if artifact.key == "storyboard" and isinstance(payload, dict):
+            pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+            return _truncate_preview(_build_storyboard_summary(payload) + "\n\n[原始 JSON]\n" + pretty)
+
+        return _truncate_preview(json.dumps(payload, ensure_ascii=False, indent=2))
+
+    return _truncate_preview(text)
 
 
 def resolve_brief_path(config: TaskConfig, state: AppState) -> str:

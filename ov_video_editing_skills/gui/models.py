@@ -97,6 +97,20 @@ class TaskResult:
 
 
 @dataclass
+class WorkspaceArtifact:
+    key: str
+    label: str
+    path: str
+    exists: bool
+    description: str = ""
+
+    def path_obj(self) -> Path | None:
+        if not self.path:
+            return None
+        return Path(self.path)
+
+
+@dataclass
 class AppState:
     config: TaskConfig = field(default_factory=TaskConfig)
     status: TaskStatus = TaskStatus.IDLE
