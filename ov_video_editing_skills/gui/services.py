@@ -16,6 +16,7 @@ from ..runtime import safe_print
 from .models import AppState, TaskConfig, TaskName, TaskResult, TaskStatus
 
 LogCallback = Callable[[str], None]
+FINAL_OUTPUT_PREFIX = "Done. Final output: "
 
 
 class _CallbackWriter(io.StringIO):
@@ -183,17 +184,28 @@ def resolve_output_dir(config: TaskConfig, state: AppState) -> str:
     return state.workspace_dir
 
 
+def extract_final_video_path(stdout: str | None, stderr: str | None = None) -> Path | None:
+    combined = "\n".join(part for part in (stdout, stderr) if part)
+    for line in reversed([item.strip() for item in combined.splitlines() if item.strip()]):
+        if line.startswith(FINAL_OUTPUT_PREFIX):
+            return Path(line.removeprefix(FINAL_OUTPUT_PREFIX).strip())
+    return None
+
+
 def _update_state_from_result(state: AppState, config: TaskConfig, result: TaskResult) -> None:
     state.last_task = result.task_name
     state.last_result = result
     state.status = TaskStatus.SUCCEEDED if result.succeeded else TaskStatus.FAILED
+
+    final_video = extract_final_video_path(result.stdout, result.stderr)
+    final_video_artifact = {"final_video": str(final_video)} if final_video is not None else {}
 
     if result.task_name == TaskName.PREPARE and result.succeeded:
         workspace = extract_workspace_from_prepare_output(result.stdout, result.stderr)
         state.workspace_dir = str(workspace)
         runtime_paths = load_runtime_paths(workspace, config.video_input)
         state.artifact_paths = runtime_paths
-        result.artifacts = runtime_paths | {"workspace": str(workspace)}
+        result.artifacts = runtime_paths | {"workspace": str(workspace)} | final_video_artifact
     elif result.task_name == TaskName.E2E and result.succeeded:
         workspace = None
         try:
@@ -204,12 +216,14 @@ def _update_state_from_result(state: AppState, config: TaskConfig, result: TaskR
             state.workspace_dir = str(workspace)
             runtime_paths = load_runtime_paths(workspace, config.video_input)
             state.artifact_paths = runtime_paths
-            result.artifacts = runtime_paths | {"workspace": str(workspace)}
+            result.artifacts = runtime_paths | {"workspace": str(workspace)} | final_video_artifact
     else:
         if state.workspace_dir:
             refresh_artifact_paths(state, config)
-            result.artifacts = dict(state.artifact_paths)
+            result.artifacts = dict(state.artifact_paths) | final_video_artifact
             result.artifacts["workspace"] = state.workspace_dir
+        elif final_video_artifact:
+            result.artifacts = dict(result.artifacts) | final_video_artifact
 
 
 class GuiTaskService:
