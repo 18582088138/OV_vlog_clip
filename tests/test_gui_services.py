@@ -14,11 +14,32 @@ from ov_video_editing_skills.gui.services import (
     build_e2e_args,
     build_prepare_args,
     build_storyboard_args,
+    extract_final_video_path,
 )
-from ov_video_editing_skills.gui.settings import load_task_config, save_task_config
+from ov_video_editing_skills.gui.settings import load_default_task_config, load_task_config, save_task_config
+from ov_video_editing_skills.runtime import DEFAULT_MODEL_DIR
 
 
 class GuiServicesTests(unittest.TestCase):
+    def test_load_default_task_config_uses_package_defaults(self) -> None:
+        config = load_default_task_config()
+
+        self.assertEqual(config.device, "GPU")
+        self.assertEqual(config.model_dir, str(DEFAULT_MODEL_DIR))
+
+    def test_load_default_task_config_supports_custom_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "custom_gui_config.json"
+            config_path.write_text(
+                '{"device": "CPU", "model_dir": "D:/models/custom", "user_request": "临时请求"}',
+                encoding="utf-8",
+            )
+            config = load_default_task_config(config_path)
+
+        self.assertEqual(config.device, "CPU")
+        self.assertEqual(config.model_dir, "D:/models/custom")
+        self.assertEqual(config.user_request, "临时请求")
+
     def test_save_and_load_task_config_roundtrip(self) -> None:
         config = TaskConfig(
             video_input=r"D:\videos\input.mp4",
@@ -111,6 +132,12 @@ class GuiServicesTests(unittest.TestCase):
         self.assertIn("--ignore-existing-analysis", args)
         self.assertIn("--skip-ffmpeg", args)
         self.assertIn("--skip-model", args)
+
+    def test_extract_final_video_path_from_compose_output(self) -> None:
+        final_path = extract_final_video_path("Done. Final output: D:/videos/out/final.mp4\n")
+
+        self.assertIsNotNone(final_path)
+        self.assertEqual(str(final_path).replace('\\', '/'), "D:/videos/out/final.mp4")
 
     def test_launcher_reports_missing_pyside6(self) -> None:
         with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("No module named 'PySide6'")):
