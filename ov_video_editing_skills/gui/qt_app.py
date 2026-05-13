@@ -155,7 +155,16 @@ class TaskWorker(QThread):
 
     def run(self) -> None:
         try:
-            result = self.service.run(self.task_name, self.config, self.log_message.emit)
+            # 在 GUI 任务执行中记录性能摘要（时间 + 近似内存），以便在任务结束时输出
+            try:
+                from ..runtime import task_performance
+
+                # 将性能摘要也发送到 GUI 日志面板
+                with task_performance(str(self.task_name), log_callback=self.log_message.emit):
+                    result = self.service.run(self.task_name, self.config, self.log_message.emit)
+            except Exception:
+                # 若性能采集不可用则直接运行任务
+                result = self.service.run(self.task_name, self.config, self.log_message.emit)
         except Exception as exc:
             self.task_failed.emit(str(exc))
             return

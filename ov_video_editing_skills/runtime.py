@@ -5,7 +5,15 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import Optional, TextIO, Callable
+import time
+import contextlib
+import importlib.resources as importlib_resources
+
+try:
+    import psutil  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None
 
 MIN_PYTHON = (3, 10)
 DEFAULT_MODEL_NAME = "Qwen2.5-VL-7B-Instruct-int4"
@@ -208,3 +216,63 @@ def write_runtime_manifest(workspace_dir: Path, extra: Optional[dict[str, object
         payload.update(extra)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest_path
+
+
+def _get_process_memory_mb() -> float:
+    """返回当前进程的常驻内存（MB），尽量使用 psutil，失败则返回 0."""
+    try:
+        if psutil is not None:
+            p = psutil.Process()
+            rss = getattr(p.memory_info(), "rss", 0)
+            return float(rss) / 1024.0 / 1024.0
+        # fallback: try resource (best-effort, may not be available on Windows)
+        import resource  # type: ignore
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        # ru_maxrss is kilobytes on Linux, bytes on some platforms—treat as KB
+        return float(getattr(usage, "ru_maxrss", 0)) / 1024.0
+    except Exception:
+        return 0.0
+
+
+@contextlib.contextmanager
+def task_performance(task_name: str, log_callback: Optional[Callable[[str], None]] = None):
+    """Context manager: 记录任务运行时间与近似内存，结束时打印摘要。"""
+    start = time.time()
+    start_mem = _get_process_memory_mb()
+    try:
+        yield
+    finally:
+        end = time.time()
+        end_mem = _get_process_memory_mb()
+        elapsed = end - start
+        mem_used = max(0.0, end_mem - start_mem)
+        # 根据 log_level 决定是否打印性能摘要（仅 DEBUG/INFO 时打印）
+        try:
+            env_level = os.environ.get("OV_LOG_LEVEL")
+            if env_level:
+                effective = env_level.strip().upper()
+            else:
+                # 尝试读取打包随带的 GUI default_config.json
+                effective = "INFO"
+                try:
+                    cfg_text = importlib_resources.files("ov_video_editing_skills.gui").joinpath("default_config.json").read_text(encoding="utf-8")
+                    import json as _json
+
+                    payload = _json.loads(cfg_text)
+                    if isinstance(payload, dict) and payload.get("log_level"):
+                        effective = str(payload.get("log_level") or "INFO").strip().upper()
+                except Exception:
+                    pass
+
+            if effective in ("DEBUG", "INFO"):
+                message = f"[PERF] {task_name} elapsed={elapsed:.2f}s, mem_delta={mem_used:.2f}MB, mem_end={end_mem:.2f}MB"
+                safe_print(message)
+                try:
+                    if log_callback:
+                        log_callback(message)
+                except Exception:
+                    pass
+        except Exception:
+            # 忽略打印错误
+            pass

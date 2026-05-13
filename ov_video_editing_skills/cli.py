@@ -38,7 +38,16 @@ def run_subcommand(handler, argv: list[str]) -> int:
     original_argv = sys.argv[:]
     try:
         sys.argv = [original_argv[0], *argv]
-        return handler()
+        command_name = getattr(handler, "__name__", "command")
+        try:
+            # 延迟导入以避免循环依赖
+            from .runtime import task_performance
+
+            with task_performance(command_name):
+                return handler()
+        except Exception:
+            # 若性能上下文不可用或出错，仍然执行命令
+            return handler()
     finally:
         sys.argv = original_argv
 

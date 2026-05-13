@@ -4,3 +4,4 @@ Pillow>=10.0.0
 openvino>=2024.0.0
 openvino-genai>=2024.0.0
 huggingface_hub>=0.20.0
+psutil
