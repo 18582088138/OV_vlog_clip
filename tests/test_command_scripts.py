@@ -229,6 +229,29 @@ class CommandScriptTests(unittest.TestCase):
 
         self.assertEqual(args.settings, "custom.json")
 
+    def test_gui_release_packaging_scripts_exist_and_reference_expected_assets(self) -> None:
+        release_cmd = self.repo_root / "package_gui_release.cmd"
+        release_ps1 = self.repo_root / "package_gui_release.ps1"
+
+        self.assertTrue(release_cmd.exists())
+        self.assertTrue(release_ps1.exists())
+
+        cmd_content = release_cmd.read_text(encoding="utf-8")
+        ps1_content = release_ps1.read_text(encoding="utf-8")
+        self.assertIn("package_gui_release.ps1", cmd_content)
+        self.assertIn("dist\\ov-video-editing-gui", ps1_content)
+        self.assertIn("sample_gui_config.json", ps1_content)
+        self.assertIn("download_model_windows.cmd", ps1_content)
+        self.assertIn("samples\\videos", ps1_content)
+
+    def test_gui_release_script_copies_default_config_and_bgm_assets(self) -> None:
+        release_ps1 = (self.repo_root / "package_gui_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("default_config.json", release_ps1)
+        self.assertIn("resource\\bgm", release_ps1)
+        self.assertIn("sample_media_paths.json", release_ps1)
+        self.assertIn("README_RELEASE.txt", release_ps1)
+
     def test_e2e_extract_workspace_from_prepare_output_supports_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir) / "editing_20260511_120000"

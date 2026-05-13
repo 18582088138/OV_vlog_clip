@@ -131,11 +131,82 @@ build_gui_exe.cmd --noconfirm
 
 - `dist\ov-video-editing-gui\ov-video-editing-gui.exe`
 
+如果你要把已编译完成的 GUI 做成可分发的 Windows 发布压缩包，可直接使用：
+
+```bat
+cd /d c:\Users\kundaxu\Downloads\xkd\ov-video-editing-skills
+package_gui_release.cmd
+```
+
+成功后会生成：
+
+- 发布目录：`release\ov-video-editing-gui-windows-v0.3.0\`
+- 压缩包：`release\ov-video-editing-gui-windows-v0.3.0.zip`
+
+当前这条发布链路已经在本地实际验证通过：
+
+- `package_gui_release.cmd` 可成功生成发布目录与 `.zip`
+- 发布包已包含 GUI 运行时、默认配置、示例视频、BGM 资源、模型辅助脚本、启动脚本
+- 压缩阶段已切换为 `tar.exe -a -cf`，避免 `Compress-Archive` 在处理 `PyInstaller` 产物时偶发文件占用失败
+
+发布包默认额外包含：
+
+- `config\default_config.json`
+- `config\sample_gui_config.json`
+- `config\sample_media_paths.json`
+- `samples\videos\2022yunqidahui.mp4`
+- `resource\bgm\` 下的示例 BGM、`bgm_style.json`、`README.md`
+- `scripts\download_model_windows.cmd`
+- `scripts\setup_ov_model.py`
+- `models\Qwen2.5-VL-7B-Instruct-int4\README_PLACE_MODEL_HERE.txt`
+- `bin\README_PLACE_FFMPEG_HERE.txt`
+- `run_gui.cmd`
+- `run_gui_with_sample.cmd`
+
 说明：
 
 - 当前优先支持 Windows GUI 单目录打包闭环。
 - GUI 打包不会默认把模型、视频、`ffmpeg` 二进制打进仓库；仍需要按 `bin/`、`models/`、`resource/` 目录规范手动准备外部资源。
 - `default_config.json` 会随 GUI 包一起带出，用于首次启动的默认参数。
+- 发布压缩包可以在一台新的 Windows 环境中直接解压后启动 GUI；模型与 `ffmpeg` 仍按发布包内说明手动放置。
+
+### 4. Windows GUI 发布包使用说明
+
+如果你已经拿到 `release\ov-video-editing-gui-windows-v0.3.0.zip`，推荐按下面顺序使用：
+
+1. 解压整个压缩包到任意 Windows 目录。
+2. 将模型放到 `models\Qwen2.5-VL-7B-Instruct-int4\`。
+3. 将 `ffmpeg.exe` 和 `ffprobe.exe` 放到 `bin\`。
+4. 双击 `run_gui.cmd` 启动 GUI。
+5. 若想直接体验内置示例素材，可双击 `run_gui_with_sample.cmd`。
+
+发布包中的关键文件作用如下：
+
+- `run_gui.cmd`：使用 `config\default_config.json` 启动 GUI
+- `run_gui_with_sample.cmd`：使用 `config\sample_gui_config.json` 启动 GUI，并预填示例视频 / BGM
+- `scripts\download_model_windows.cmd`：提示模型下载源、镜像地址和目标放置目录
+- `scripts\setup_ov_model.py`：在有 Python 环境时检查模型目录是否完整
+- `config\sample_media_paths.json`：记录示例视频、示例 BGM、模型目录、`ffmpeg` 目标路径
+- `README_RELEASE.txt`：发布包内的简版交付说明
+
+推荐的首次自检方式：
+
+```bat
+cd /d C:\path\to\ov-video-editing-gui-windows-v0.3.0
+run_gui.cmd
+```
+
+如果你要先检查发布包结构是否完整，可以重点确认：
+
+- `ov-video-editing-gui.exe`
+- `_internal\`
+- `config\default_config.json`
+- `config\sample_gui_config.json`
+- `samples\videos\2022yunqidahui.mp4`
+- `resource\bgm\bgm_style.json`
+- `scripts\download_model_windows.cmd`
+- `models\Qwen2.5-VL-7B-Instruct-int4\README_PLACE_MODEL_HERE.txt`
+- `bin\README_PLACE_FFMPEG_HERE.txt`
 
 ## 快速开始
 

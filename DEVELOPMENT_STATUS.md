@@ -1,6 +1,6 @@
 # ov-video-editing-skills 开发状态归档
 
-更新时间：2026-05-12
+更新时间：2026-05-13
 
 ## 1. 项目定位
 
@@ -51,6 +51,9 @@
 - 建立独立 Git 仓库并补齐提交辅助脚本。
 - 为 E2E pipeline 补齐 `wheel` 打包入口，并提供 Windows `exe` 构建配置。
 - 补充 `build_e2e_exe.cmd`，用于 Windows 下一键构建 E2E 可执行文件。
+- 补充 `build_gui_exe.cmd` 与 `ov_video_editing_gui.spec`，用于 Windows GUI 单目录打包。
+- 补充 `package_gui_release.cmd` / `package_gui_release.ps1`，用于把 GUI 单目录产物整理成可分发的 Windows 发布目录与 `.zip`。
+- 已实际验证 GUI 发布脚本可成功生成 `release\ov-video-editing-gui-windows-v0.3.0\` 与对应 `.zip`。
 
 ### 进行中 / 下一步建议
 
@@ -238,6 +241,10 @@
 - 新增 `ov_video_editing_e2e.spec`，支持使用 `PyInstaller` 构建 Windows `exe`。
 - 新增 `build_e2e_exe.cmd`，封装 `PyInstaller` 调用，减少手工输入。
 - 将 `scripts/test_e2e.py` 的核心逻辑收敛到包内模块，便于安装后直接调用。
+- 新增 `ov_video_editing_gui.spec` 与 `build_gui_exe.cmd`，支持构建 Windows GUI 单目录包。
+- 新增 `package_gui_release.cmd` 与 `package_gui_release.ps1`，支持生成可直接解压分发的 Windows GUI 发布包。
+- GUI 发布包默认额外带出 `default_config`、示例视频、BGM 资源、模型辅助脚本、启动脚本和资源占位说明。
+- GUI 发布压缩阶段已改用 `tar.exe -a -cf`，规避 `Compress-Archive` 对 `PyInstaller` 产物偶发锁文件失败的问题。
 
 ### 4.5 资源与环境策略
 
@@ -299,6 +306,8 @@
   - 新增 `ov_video_editing_gui.spec`，用于 Windows GUI `PyInstaller` 打包
   - 新增 `build_gui_exe.cmd`，用于 Windows 下一键构建 GUI 单目录包
   - GUI 打包默认携带 `default_config.json`，并复用当前 `bin/`、`models/`、`resource/` 资源定位约定
+  - 新增 `package_gui_release.cmd` / `package_gui_release.ps1`，用于把 GUI 单目录包进一步整理成 Windows 发布压缩包
+  - 发布压缩包会附带默认配置、sample video、BGM 资源、模型下载脚本与外部资源放置说明
 
 ---
 
@@ -312,6 +321,8 @@
 - `requirements-build.txt`
 - `ov_video_editing_e2e.spec`
 - `build_e2e_exe.cmd`
+- `package_gui_release.cmd`
+- `package_gui_release.ps1`
 - `ov_video_editing_skills/cli.py`
 - `ov_video_editing_skills/e2e.py`
 - `ov_video_editing_skills/prepare_workspace.py`
