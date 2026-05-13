@@ -56,6 +56,7 @@ class GuiServicesTests(unittest.TestCase):
             model_dir=r"D:\models\qwen",
             ffmpeg_path=r"D:\ffmpeg\bin\ffmpeg.exe",
             device="CPU",
+            log_level="WARNING",
             skip_ffmpeg=True,
         )
 
@@ -70,6 +71,7 @@ class GuiServicesTests(unittest.TestCase):
         self.assertEqual(loaded.model_dir, config.model_dir)
         self.assertEqual(loaded.ffmpeg_path, config.ffmpeg_path)
         self.assertEqual(loaded.device, "CPU")
+        self.assertEqual(loaded.log_level, "WARNING")
         self.assertTrue(loaded.skip_ffmpeg)
 
     def test_build_prepare_args_includes_skip_flags(self) -> None:

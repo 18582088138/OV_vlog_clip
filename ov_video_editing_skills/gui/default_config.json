@@ -11,6 +11,7 @@
   "analysis_path": "",
   "storyboard_path": "",
   "device": "GPU",
+  "log_level": "INFO",
   "ignore_existing_analysis": false,
   "skip_ffmpeg": false,
   "skip_model": false

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStatusBar,
+    QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -165,6 +166,8 @@ class VideoPlayerWidget(QWidget):
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.current_video: Path | None = None
+        self._is_slider_pressed = False
+        self._was_playing_before_seek = False
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
         self.audio_output.setVolume(0.65)
@@ -196,10 +199,18 @@ class VideoPlayerWidget(QWidget):
         self.play_button = QPushButton("播放 / 暂停", self)
         self.stop_button = QPushButton("停止", self)
         self.open_button = QPushButton("打开所在目录", self)
+        self.progress_slider = QSlider(Qt.Horizontal, self)
+        self.progress_slider.setRange(0, 0)
+        self.position_label = QLabel("00:00 / 00:00", self)
+        self.position_label.setProperty("role", "muted")
         for button in [self.stop_button, self.open_button]:
             button.setProperty("variant", "secondary")
             button.style().unpolish(button)
             button.style().polish(button)
+
+        progress_layout = QHBoxLayout()
+        progress_layout.addWidget(self.progress_slider, 1)
+        progress_layout.addWidget(self.position_label)
 
         controls = QHBoxLayout()
         controls.addWidget(self.play_button)
@@ -211,6 +222,7 @@ class VideoPlayerWidget(QWidget):
         layout.addWidget(self.path_label)
         layout.addWidget(self.placeholder)
         layout.addWidget(self.video_widget)
+        layout.addLayout(progress_layout)
         layout.addLayout(controls)
 
         self.video_widget.hide()
@@ -218,10 +230,18 @@ class VideoPlayerWidget(QWidget):
         self.play_button.clicked.connect(self.toggle_playback)
         self.stop_button.clicked.connect(self.stop)
         self.open_button.clicked.connect(self.open_parent_dir)
+        self.progress_slider.sliderPressed.connect(self._handle_slider_pressed)
+        self.progress_slider.sliderReleased.connect(self._handle_slider_released)
+        self.progress_slider.sliderMoved.connect(self._handle_slider_moved)
+        self.player.durationChanged.connect(self._handle_duration_changed)
+        self.player.positionChanged.connect(self._handle_position_changed)
 
     def set_video(self, video_path: Path | None) -> None:
         self.current_video = video_path if video_path and video_path.exists() else None
         self.player.stop()
+        self.progress_slider.setValue(0)
+        self.progress_slider.setRange(0, 0)
+        self.position_label.setText("00:00 / 00:00")
         if self.current_video is None:
             self.path_label.setText("当前无可预览视频")
             self.video_widget.hide()
@@ -243,11 +263,59 @@ class VideoPlayerWidget(QWidget):
 
     def stop(self) -> None:
         self.player.stop()
+        # 重置进度与时间显示到起始位置
+        try:
+            self.progress_slider.setValue(0)
+            self._update_position_label(0, self.player.duration())
+        except Exception:
+            pass
 
     def open_parent_dir(self) -> None:
         if self.current_video is None:
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.current_video.parent)))
+
+    def _handle_duration_changed(self, duration: int) -> None:
+        self.progress_slider.setRange(0, max(duration, 0))
+        self._update_position_label(self.player.position(), duration)
+
+    def _handle_position_changed(self, position: int) -> None:
+        if not self._is_slider_pressed:
+            self.progress_slider.setValue(position)
+        self._update_position_label(position, self.player.duration())
+
+    def _handle_slider_pressed(self) -> None:
+        # 记录按下时播放状态，释放后按此状态决定是否恢复播放
+        self._is_slider_pressed = True
+        self._was_playing_before_seek = self.player.playbackState() == QMediaPlayer.PlayingState
+        if self._was_playing_before_seek:
+            # 暂停播放以便用户拖拽
+            self.player.pause()
+
+    def _handle_slider_released(self) -> None:
+        self._is_slider_pressed = False
+        # 跳转到所选位置
+        new_pos = self.progress_slider.value()
+        self.player.setPosition(new_pos)
+        # 若释放前正在播放，则恢复播放
+        if self._was_playing_before_seek:
+            self.player.play()
+        self._was_playing_before_seek = False
+
+    def _handle_slider_moved(self, value: int) -> None:
+        self._update_position_label(value, self.player.duration())
+
+    def _update_position_label(self, position: int, duration: int) -> None:
+        self.position_label.setText(f"{self._format_ms(position)} / {self._format_ms(duration)}")
+
+    @staticmethod
+    def _format_ms(value: int) -> str:
+        total_seconds = max(int(value / 1000), 0)
+        minutes, seconds = divmod(total_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
 
 
 class ResultVideoDialog(QDialog):
@@ -306,6 +374,10 @@ class SettingsDialog(QDialog):
         self.brief_path_edit = QLineEdit(config.brief_path, self)
         self.analysis_path_edit = QLineEdit(config.analysis_path, self)
         self.storyboard_path_edit = QLineEdit(config.storyboard_path, self)
+        self.log_level_combo = QComboBox(self)
+        self.log_level_combo.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
+        log_level_index = self.log_level_combo.findText((config.log_level or "INFO").upper())
+        self.log_level_combo.setCurrentIndex(log_level_index if log_level_index >= 0 else 1)
 
         self.ignore_existing_checkbox = QCheckBox("忽略已有分析结果", self)
         self.skip_ffmpeg_checkbox = QCheckBox("跳过 ffmpeg 检查", self)
@@ -323,6 +395,7 @@ class SettingsDialog(QDialog):
         form.addRow("Brief 路径", self._with_browse(self.brief_path_edit, self._choose_brief_file))
         form.addRow("Analysis 路径", self._with_browse(self.analysis_path_edit, self._choose_analysis_file))
         form.addRow("Storyboard 路径", self._with_browse(self.storyboard_path_edit, self._choose_storyboard_file))
+        form.addRow("日志级别", self.log_level_combo)
         form.addRow("", self.ignore_existing_checkbox)
         form.addRow("", self.skip_ffmpeg_checkbox)
         form.addRow("", self.skip_model_checkbox)
@@ -398,6 +471,8 @@ class SettingsDialog(QDialog):
         self.brief_path_edit.setText(self.default_config.brief_path)
         self.analysis_path_edit.setText(self.default_config.analysis_path)
         self.storyboard_path_edit.setText(self.default_config.storyboard_path)
+        index = self.log_level_combo.findText((self.default_config.log_level or "INFO").upper())
+        self.log_level_combo.setCurrentIndex(index if index >= 0 else 1)
         self.ignore_existing_checkbox.setChecked(self.default_config.ignore_existing_analysis)
         self.skip_ffmpeg_checkbox.setChecked(self.default_config.skip_ffmpeg)
         self.skip_model_checkbox.setChecked(self.default_config.skip_model)
@@ -414,6 +489,7 @@ class SettingsDialog(QDialog):
             brief_path=self.brief_path_edit.text().strip(),
             analysis_path=self.analysis_path_edit.text().strip(),
             storyboard_path=self.storyboard_path_edit.text().strip(),
+            log_level=self.log_level_combo.currentText(),
             ignore_existing_analysis=self.ignore_existing_checkbox.isChecked(),
             skip_ffmpeg=self.skip_ffmpeg_checkbox.isChecked(),
             skip_model=self.skip_model_checkbox.isChecked(),
@@ -736,6 +812,7 @@ class MainWindow(QMainWindow):
             f"输出目录：{self.session_config.output_dir or '使用工作区默认目录'}",
             f"ffmpeg：{self.session_config.ffmpeg_path or '按 default config / 自动发现'}",
             f"BGM：{self.session_config.bgm_file or '随机或 storyboard 指定'}",
+            f"日志级别：{self.session_config.log_level or 'INFO'}",
             f"临时开关：ignore={self.session_config.ignore_existing_analysis}, skip_ffmpeg={self.session_config.skip_ffmpeg}, skip_model={self.session_config.skip_model}",
         ]
         self.settings_summary_label.setText("\n".join(summary))

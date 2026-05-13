@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import io
 import json
 import os
+import time
+import tracemalloc
 import sys
 from pathlib import Path
 from typing import Callable
@@ -19,6 +22,7 @@ from .models import AppState, DiagnosticIssue, EnvironmentCheck, TaskConfig, Tas
 LogCallback = Callable[[str], None]
 FINAL_OUTPUT_PREFIX = "Done. Final output: "
 TEXT_PREVIEW_LIMIT = 12000
+LOG_LEVEL_PRIORITY = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40}
 
 
 class _CallbackWriter(io.StringIO):
@@ -48,6 +52,79 @@ class _CallbackWriter(io.StringIO):
 def _emit(log_callback: LogCallback | None, text: str) -> None:
     if log_callback:
         log_callback(str(text))
+
+
+def _normalize_log_level(level: str | None) -> str:
+    normalized = str(level or "INFO").upper().strip()
+    return normalized if normalized in LOG_LEVEL_PRIORITY else "INFO"
+
+
+def _classify_log_line(text: str) -> str:
+    stripped = str(text or "").strip()
+    lowered = stripped.lower()
+    if stripped.startswith("[debug]"):
+        return "DEBUG"
+    if stripped.startswith("[warning]") or " warning" in lowered or lowered.startswith("warning"):
+        return "WARNING"
+    if (
+        stripped.startswith("[error]")
+        or " traceback" in lowered
+        or lowered.startswith("traceback")
+        or "runtimeerror" in lowered
+        or " failed" in lowered
+        or lowered.startswith("error")
+    ):
+        return "ERROR"
+    return "INFO"
+
+
+def _make_filtered_log_callback(config: TaskConfig, callback: LogCallback | None) -> LogCallback | None:
+    if callback is None:
+        return None
+    threshold = LOG_LEVEL_PRIORITY[_normalize_log_level(config.log_level)]
+
+    def _wrapped(text: str) -> None:
+        level = _classify_log_line(text)
+        if LOG_LEVEL_PRIORITY[level] >= threshold:
+            callback(text)
+
+    return _wrapped
+
+
+def _get_process_memory_mb() -> float | None:
+    if os.name == "nt":
+        class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("PageFaultCount", ctypes.c_ulong),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = PROCESS_MEMORY_COUNTERS()
+        counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        process = kernel32.GetCurrentProcess()
+        ok = psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb)
+        if ok:
+            return counters.WorkingSetSize / (1024 * 1024)
+        return None
+
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        factor = 1024 if sys.platform != "darwin" else 1024 * 1024
+        return usage.ru_maxrss / factor
+    except Exception:
+        return None
 
 
 def _invoke_handler(task_name: TaskName, handler, argv: list[str], log_callback: LogCallback | None = None) -> TaskResult:
@@ -585,23 +662,43 @@ class GuiTaskService:
         self.state.status = TaskStatus.RUNNING
         self.state.last_task = task_name
 
-        _emit(log_callback, f"[gui] 开始执行：{task_name.value}")
+        filtered_log_callback = _make_filtered_log_callback(config, log_callback)
+        memory_before = _get_process_memory_mb()
+        tracemalloc.start()
+        started_at = time.perf_counter()
+
+        _emit(filtered_log_callback, f"[gui] 开始执行：{task_name.value}")
+        _emit(filtered_log_callback, f"[debug] 日志级别：{_normalize_log_level(config.log_level)}")
 
         if task_name == TaskName.PREPARE:
-            result = _invoke_handler(task_name, prepare_main, build_prepare_args(config), log_callback)
+            result = _invoke_handler(task_name, prepare_main, build_prepare_args(config), filtered_log_callback)
         elif task_name == TaskName.ANALYZE:
-            result = _invoke_handler(task_name, analyze_main, build_analyze_args(config, self.state), log_callback)
+            result = _invoke_handler(task_name, analyze_main, build_analyze_args(config, self.state), filtered_log_callback)
         elif task_name == TaskName.STORYBOARD:
-            result = _invoke_handler(task_name, storyboard_main, build_storyboard_args(config, self.state), log_callback)
+            result = _invoke_handler(task_name, storyboard_main, build_storyboard_args(config, self.state), filtered_log_callback)
         elif task_name == TaskName.COMPOSE:
-            result = _invoke_handler(task_name, compose_main, build_compose_args(config, self.state), log_callback)
+            result = _invoke_handler(task_name, compose_main, build_compose_args(config, self.state), filtered_log_callback)
         elif task_name == TaskName.E2E:
-            result = _invoke_handler(task_name, e2e_main, build_e2e_args(config), log_callback)
+            result = _invoke_handler(task_name, e2e_main, build_e2e_args(config), filtered_log_callback)
         else:
             raise ValueError(f"不支持的任务类型：{task_name}")
 
+        elapsed_seconds = time.perf_counter() - started_at
+        current_python_peak_mb = tracemalloc.get_traced_memory()[1] / (1024 * 1024)
+        tracemalloc.stop()
+        memory_after = _get_process_memory_mb()
+
         _update_state_from_result(self.state, config, result)
-        _emit(log_callback, f"[gui] 执行结束：{task_name.value} -> rc={result.returncode}")
+        _emit(filtered_log_callback, f"[gui] 执行结束：{task_name.value} -> rc={result.returncode}")
+        perf_message = (
+            f"[perf] task={task_name.value} elapsed={elapsed_seconds:.2f}s "
+            f"memory_before={memory_before:.1f}MB " if memory_before is not None else f"[perf] task={task_name.value} elapsed={elapsed_seconds:.2f}s "
+        )
+        if memory_after is not None:
+            delta = memory_after - memory_before if memory_before is not None else 0.0
+            perf_message += f"memory_after={memory_after:.1f}MB delta={delta:+.1f}MB "
+        perf_message += f"python_peak={current_python_peak_mb:.1f}MB"
+        _emit(filtered_log_callback, perf_message)
         return result
 
 

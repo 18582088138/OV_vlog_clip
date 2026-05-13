@@ -37,6 +37,7 @@ class TaskConfig:
     analysis_path: str = ""
     storyboard_path: str = ""
     device: str = "GPU"
+    log_level: str = "INFO"
     ignore_existing_analysis: bool = False
     skip_ffmpeg: bool = False
     skip_model: bool = False
@@ -55,6 +56,7 @@ class TaskConfig:
             "analysis_path": self.analysis_path,
             "storyboard_path": self.storyboard_path,
             "device": self.device,
+            "log_level": self.log_level,
             "ignore_existing_analysis": self.ignore_existing_analysis,
             "skip_ffmpeg": self.skip_ffmpeg,
             "skip_model": self.skip_model,
@@ -76,6 +78,7 @@ class TaskConfig:
             analysis_path=str(payload.get("analysis_path") or ""),
             storyboard_path=str(payload.get("storyboard_path") or ""),
             device=str(payload.get("device") or "GPU"),
+            log_level=str(payload.get("log_level") or "INFO").upper(),
             ignore_existing_analysis=bool(payload.get("ignore_existing_analysis", False)),
             skip_ffmpeg=bool(payload.get("skip_ffmpeg", False)),
             skip_model=bool(payload.get("skip_model", False)),
