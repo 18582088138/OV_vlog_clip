@@ -78,36 +78,40 @@
 
 本专项只解决以下交付侧问题，不在本轮内扩展到无关功能重构：
 
-1. **Compose 阶段 ffmpeg 弹窗**
+1. **Compose 阶段 ffmpeg 弹窗（已解决）**
   - 目标：Windows GUI / 打包环境下执行 `compose` 时不再频繁弹出控制台窗口。
-  - 根因假设：`ffmpeg` / `ffprobe` 子进程在源码运行、GUI 打包运行、`cmd` 启动三种模式下的隐藏窗口参数不一致或未统一封装。
-  - 预期结果：GUI 中执行 `Compose` / `E2E` 时，无持续闪烁黑框；异常时仍能保留必要错误信息。
+  - 说明：已在运行时统一封装 `subprocess` 启动参数（`hidden_subprocess_kwargs()`），并在主要 `ffmpeg`/`ffprobe` 调用处应用，已验证代码层面修复。
+  - 验收：打包后的 GUI 在目标机器运行时不应出现持续闪烁黑框（需在目标机器做最终验证）。
 
-2. **发布包附带 ffmpeg**
+2. **发布包附带 ffmpeg（已解决）**
   - 目标：发布包尽量做到“一键解压即可运行”，优先随包附带 `ffmpeg` / `ffprobe`。
-  - 实施原则：源码仓库仍不提交大体积二进制；仅在打包阶段把本地已有 `bin\ffmpeg.exe` / `bin\ffprobe.exe` 复制进 release package。
-  - 预期结果：若本地 `bin/` 完整，生成的 `release\...` 默认包含对应可执行文件。
+  - 说明：已在 `package_gui_release.cmd` / `package_gui_release.ps1` 中增加 `bin/` 检查和复制逻辑；打包流程在本地有 `bin` 时会把 `ffmpeg.exe`/`ffprobe.exe` 复制到 release 包中。
+  - 验收：release 包内 `bin\ffmpeg.exe`/`bin\ffprobe.exe` 可执行，打包日志对缺失项有明确提示。
 
-3. **Release 自检与自动补齐脚本**
+3. **Release 自检与自动补齐脚本（已解决）**
   - 目标：发布包内提供一键自检脚本，检查模型、`ffmpeg`、配置、示例素材是否齐全；缺失时自动下载。
-  - 下载策略：
-    - `ffmpeg`：下载公开 zip 并解压到 `bin/`
-    - 模型：优先支持 `hf-mirror`，并兼容 `ModelScope`
-    - 配置与示例素材：从仓库发布附件、固定下载地址或可控镜像补齐
-  - 预期结果：发布包内存在 `self_check_release.cmd` 与 `self_check_release.ps1`，普通用户可通过单次执行完成检查和补齐。
+  - 说明：已新增 `scripts\release_self_check.cmd`，并在 release 中生成 `self_check_release.cmd` / `self_check_release.ps1` 模板，支持检查常见缺失项并指导/自动补齐 `ffmpeg` 与模型资源（根据可用镜像）。
+  - 验收：解压 release 后运行 `self_check_release.cmd` 能检测并补齐缺失的 `ffmpeg`/配置/模型（在网络可用时）。
 
-4. **GUI 视频播放进度条 / 拖拽**
+4. **GUI 视频播放进度条 / 拖拽（已解决）**
   - 目标：输入视频与成片预览支持进度显示、拖拽 seek、时间显示，交互接近常见播放器。
-  - 首选路线：继续使用现有 `QMediaPlayer`，补齐 `QSlider`、当前位置 / 总时长联动、拖拽中断与恢复逻辑。
-  - 备选路线：若现有实现对本地 mp4、seek、打包兼容性不足，再评估 `python-vlc` 或其他播放器内核。
-  - 预期结果：用户可直观拖动进度条调整播放位置，并看到当前时间 / 总时长。
+  - 说明：已在 GUI 播放器中补齐进度条与滑块拖拽恢复逻辑（`VideoPlayerWidget` 更新），支持拖拽时记住播放状态并在释放后恢复。
+  - 验收：本地运行的 GUI 已具备进度条、时间显示与拖拽 seek 功能；在目标打包环境需再次验证兼容性。
 
-5. **日志级别与性能数据**
+5. **日志级别与性能数据（待解决）**
   - 目标：
     - 在 `Settings` 中增加 `log level`
     - 任务完成后打印耗时、峰值内存、关键阶段耗时等性能数据
-  - 实施原则：先建立统一日志过滤与任务级性能汇总，不在本轮内进行全量日志系统重构。
-  - 预期结果：支持 `DEBUG/INFO/WARNING/ERROR` 级别切换；每次 `Prepare/Analyze/Storyboard/Compose/E2E` 结束后均有简洁性能摘要。
+  - 说明：已把该项列为当前专项的剩余工作；文档与配置将添加 `log_level` 默认值并在运行时收集阶段耗时/内存快照；实现需要在 GUI `Settings` 与核心运行流程中接入性能采集点。
+  - 下一步（实施要点）：
+    - 在 `default_config.json` 添加 `log_level` 默认项并在 GUI Settings 中暴露切换。
+    - 在核心任务入口（`Prepare/Analyze/Storyboard/Compose/E2E`）处添加计时与内存快照，任务结束时输出汇总。
+    - 增加少量单元/集成测试验证日志级别切换不会影响功能输出。
+  - 验收：支持 `DEBUG/INFO/WARNING/ERROR` 级别切换，且每次任 务结束输出简洁的性能摘要（总耗时 + 峰值内存为首版最小要求）。
+
+**当前专项进展（简要）**
+- 已完成：第 1（ffmpeg 弹窗抑制）、第 2（发布包附带 ffmpeg）、第 3（自检脚本）、第 4（GUI 进度条/拖拽）项的代码实现与打包脚本调整。
+- 待完成：第 5（日志级别与性能数据）为当前剩余工作，建议按“配置 -> 性能采集 -> UI 暴露”顺序实现并验证。
 
 #### 实施原则
 
