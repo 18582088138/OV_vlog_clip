@@ -243,6 +243,8 @@ class CommandScriptTests(unittest.TestCase):
         self.assertIn("sample_gui_config.json", ps1_content)
         self.assertIn("download_model_windows.cmd", ps1_content)
         self.assertIn("samples\\videos", ps1_content)
+        self.assertIn("release_self_check.ps1", ps1_content)
+        self.assertIn("self_check_release.cmd", ps1_content)
 
     def test_gui_release_script_copies_default_config_and_bgm_assets(self) -> None:
         release_ps1 = (self.repo_root / "package_gui_release.ps1").read_text(encoding="utf-8")
@@ -251,6 +253,8 @@ class CommandScriptTests(unittest.TestCase):
         self.assertIn("resource\\bgm", release_ps1)
         self.assertIn("sample_media_paths.json", release_ps1)
         self.assertIn("README_RELEASE.txt", release_ps1)
+        self.assertIn("ffmpeg.exe", release_ps1)
+        self.assertIn("ffprobe.exe", release_ps1)
 
     def test_e2e_extract_workspace_from_prepare_output_supports_stdout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
