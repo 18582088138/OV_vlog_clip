@@ -321,6 +321,7 @@ def run_cmd(cmd: List[str], dry_run: bool) -> None:
     safe_print(" ".join(cmd))
     if dry_run:
         return
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result = subprocess.run(cmd, capture_output=True, text=True, **hidden_subprocess_kwargs())
     if result.returncode != 0:
         raise RuntimeError("Command failed:\n" + " ".join(cmd) + "\n\n" + (result.stderr or result.stdout or ""))
@@ -331,6 +332,7 @@ def _is_valid_clip(ffmpeg: str, output_path: Path) -> bool:
         return False
     ffprobe = Path(ffmpeg).with_name("ffprobe.exe" if sys.platform.startswith("win") else "ffprobe")
     probe_bin = str(ffprobe) if ffprobe.exists() else "ffprobe"
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result = subprocess.run(
         [probe_bin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(output_path)],
         capture_output=True,
@@ -350,12 +352,14 @@ def extract_clip(ffmpeg: str, source_video: Path, output_path: Path, in_point: f
         return
 
     safe_print(" ".join(cmd_input_seek))
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result = subprocess.run(cmd_input_seek, capture_output=True, text=True, **hidden_subprocess_kwargs())
     if result.returncode == 0 and _is_valid_clip(ffmpeg, output_path):
         return
 
     safe_print("[extract_clip] 输入侧 seek 失败或输出无效，切换到输出侧 seek 模式重试...")
     safe_print(" ".join(cmd_output_seek))
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result2 = subprocess.run(cmd_output_seek, capture_output=True, text=True, **hidden_subprocess_kwargs())
     if result2.returncode != 0 or not _is_valid_clip(ffmpeg, output_path):
         raise RuntimeError("Command failed (both seek modes):\n" + " ".join(cmd_output_seek) + "\n\n" + (result2.stderr or result2.stdout or ""))
@@ -390,11 +394,13 @@ def parse_duration_from_ffmpeg_output(output: str) -> Optional[float]:
 def get_media_duration(ffprobe: str, ffmpeg: str, media_path: Path) -> Optional[float]:
     cmd = [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(media_path)]
     try:
+        # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
         result = subprocess.run(cmd, capture_output=True, text=True, **hidden_subprocess_kwargs())
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())
     except Exception:
         pass
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result = subprocess.run([ffmpeg, "-i", str(media_path)], capture_output=True, text=True, **hidden_subprocess_kwargs())
     return parse_duration_from_ffmpeg_output(result.stderr or result.stdout)
 
@@ -402,11 +408,13 @@ def get_media_duration(ffprobe: str, ffmpeg: str, media_path: Path) -> Optional[
 def has_audio_stream(ffprobe: str, ffmpeg: str, media_path: Path) -> bool:
     cmd = [ffprobe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(media_path)]
     try:
+        # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
         result = subprocess.run(cmd, capture_output=True, text=True, **hidden_subprocess_kwargs())
         if result.returncode == 0:
             return bool(result.stdout.strip())
     except Exception:
         pass
+    # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
     result = subprocess.run([ffmpeg, "-i", str(media_path)], capture_output=True, text=True, **hidden_subprocess_kwargs())
     text = (result.stderr or "") + (result.stdout or "")
     return "Audio:" in text

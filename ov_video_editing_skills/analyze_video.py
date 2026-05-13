@@ -72,6 +72,7 @@ def get_video_duration(video_path: Path, ffprobe_path: str | None = None) -> flo
 
     if ffprobe_path and Path(ffprobe_path).exists():
         try:
+            # 【注意】所有ffmpeg/ffprobe相关子进程必须加hidden_subprocess_kwargs，防止弹窗
             result = subprocess.run(
                 [
                     ffprobe_path,

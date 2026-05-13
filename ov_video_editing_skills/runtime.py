@@ -126,11 +126,19 @@ def safe_print(*values: object, sep: str = " ", end: str = "\n", file: TextIO | 
 
 
 def hidden_subprocess_kwargs() -> dict[str, object]:
+    """
+    Windows下用于隐藏所有ffmpeg/ffprobe等子进程窗口的参数。
+    【注意】所有涉及ffmpeg/ffprobe的subprocess调用必须加上**hidden_subprocess_kwargs()**，否则GUI/打包环境下会弹黑框。
+    """
     if os.name != "nt":
         return {}
 
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+
     kwargs: dict[str, object] = {
-        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        "creationflags": creationflags,
+        "stdin": subprocess.DEVNULL,
     }
     startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
     if startupinfo_factory is not None:
